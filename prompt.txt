@@ -1,0 +1,79 @@
+Write a bash script called "cf-ddns-sync.sh" that update Cloudflare DNS A records with the IPv4 addresses of given network interfaces.
+
+Cloudflare DNS A records can be updated using Cloudflare REST API (documentation at https://developers.cloudflare.com/api/).
+
+The API service requires an API TOKEN to call the service.
+
+
+
+
+The script command line argument parser MUST receive the following options:
+
+    ./cf-ddns-sync.sh --apiToken 145976123897469278364 --zoneId aabbccddeeff --target host1.example.com --source eth0 --source eth1
+
+The argument --apiToken is REQUIRED and inform the Cloudflare Api Token used for API calls
+
+The argument --zoneId is REQUIRED and inform the "id" for the DNS Zone of the target DNS record. This will be needed for the API calls.
+
+The argument --target is REQUIRED and inform a HOSTNAME for Cloudflare DNS. The hostname must exist in the zone
+
+The argument --source is OPTIONAL and inform the NETWORK INTERFACES used to query the ipv4 sources. It mmay acc 0, 1 or multiple entries.
+
+
+
+FOR EACH SOURCE network interface, we need to query its PUBLIC IPV4 ADDRESS using the "dig" linux command according the following instructions:
+
+- First, we need to get the LOCAL IPV4 ADDRESS of the interface (named $SOURCE_INTERFACE_NAME in the code below):
+
+    IFACE_LOCAL_IPV4_ADDRESS=$(
+        ip -4 -oneline address show $SOURCE_INTERFACE_NAME | 
+            grep --only-matching --perl-regexp '((25[0-5]|(2[0-4]|1\d|[1-9]|)\d)\.?\b){4}' | 
+                head -n 1
+    )
+
+- Then, we use the "dig" command to query the PUBLIC IPV4 ADDRESS from that interface:
+
+    IFACE_PUBLIC_IPV4_ADDRESS=$(
+        dig -b $IFACE_LOCAL_IPV4_ADDRESS +short txt ch whoami.cloudflare @1.1.1.1 | 
+            tr -d '\"'
+    )
+
+However, IF NO SOURCE is passed as argument, there is no need to determine the LOCAL IPV4 ADDRESS. We must call "dig" without the "-b" argument. This will query the PUBLIC IPV4 ADDRESS using any network interface:
+
+    IFACE_PUBLIC_IPV4_ADDRESS=$(
+        dig +short txt ch whoami.cloudflare @1.1.1.1 | 
+            tr -d '\"'
+    )
+
+
+
+Now, the DNS A RECORDS of the specified TARGET hostname must be synchronized with the list of PUBLIC IPV4 ADDRESSES previously obtained.
+
+Lets call them SOURCE_IPV4_ADDRESSES and TARGET_DNS_RECORDS.
+
+FOR EACH SOURCE_IPV4_ADDRESSES we need to INSERT, UPDATE or DELETE a respective DNS A RECORD. 
+
+The expected final output must be that TARGET_DNS_RECORDS reflect the exact same ipv4 addresses of SOURCE_IPV4_ADDRESSES.
+
+
+
+
+
+get public ipv4 address from dig
+
+
+# Use the GCSE method: Include your goal, some context, information source, and your expectations in your prompt.
+
+# Structure your prompt: The order of information in your prompt can affect the output. For example, start with general context and end with specific instructions. 
+
+# Use examples: Provide examples to help Copilot understand your expectations.
+
+
+
+#--- Claude 3.5 sonnet--------
+# for a bash script called sync.sh, write a bash command line argument parser which can receive the following argument options:
+#
+# sync.sh --source source1  --source source2  --source source3  --target target1  --target target2
+#
+# Please note that the arguments --source and --target must allow multiple entries.
+#-----------
