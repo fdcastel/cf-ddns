@@ -19,6 +19,8 @@ The argument parser should validate all inputs and provide usage instructions if
 
 The script should suppress output unless running in verbose mode, which can be activated with `-v` or `--verbose`.
 
+All verbose outputs must be redirected to `stderr`.
+
 Upon validation of all arguments, the script execution should proceed as follows:
 
 
