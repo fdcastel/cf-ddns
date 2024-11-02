@@ -1,0 +1,1 @@
+Develop a script based on the guidelines outlined in the cf-ddns.spec.md file.
