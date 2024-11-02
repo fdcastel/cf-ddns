@@ -2,105 +2,56 @@
 
 set -euo pipefail
 
-# Check if running as root
-if [ "$EUID" -ne 0 ]; then
-    echo "Error: This script must be run as root"
-    exit 1
-fi
+SCRIPT_DIR=$(dirname "$(readlink -f "$0")")
 
-# Display help message
-show_help() {
+print_usage() {
     cat << EOF
-Usage: cf-ddns.sh COMMAND [OPTIONS]
+Usage: $(basename "$0") COMMAND [OPTIONS]
 
 Commands:
-    install     Install cf-ddns service
-    uninstall   Remove cf-ddns service
+    install     Install cf-ddns service for a target host
+    uninstall   Uninstall cf-ddns service for a target host
 
 Options:
-    -h, --help          Show this help message
-    --target            DNS record to update (required)
-    --apiToken          Cloudflare API token (required for install)
-    --zoneId           Cloudflare Zone ID (required for install)
-    --source           Source IP address (optional)
-    --ttl              TTL for DNS record (optional)
-
-Examples:
-    cf-ddns.sh install --target host1.example.com --apiToken TOKEN --zoneId ZONE
-    cf-ddns.sh uninstall --target host1.example.com
+    -h, --help              Show this help message
+    --target HOST           Target hostname (required)
+    --apiToken TOKEN        Cloudflare API token (required for install)
+    --zoneId ID            Cloudflare Zone ID (required for install)
+    --source SOURCE        Source IP method (optional)
+    --ttl TTL             TTL value (optional)
 EOF
-    exit 0
+    exit 1
 }
 
-# Parse command line arguments
-parse_args() {
-    COMMAND=""
-    TARGET=""
-    EXTRA_ARGS=""
-
-    [ $# -eq 0 ] && show_help
-
-    COMMAND="$1"
+create_service_file() {
+    local target="$1"
     shift
-
-    while [[ $# -gt 0 ]]; do
-        case "$1" in
-            -h|--help)
-                show_help
-                ;;
-            --target)
-                TARGET="$2"
-                shift 2
-                ;;
-            *)
-                if [ "$COMMAND" = "install" ]; then
-                    EXTRA_ARGS="$EXTRA_ARGS $1 $2"
-                    shift 2
-                else
-                    echo "Error: Unknown argument $1"
-                    exit 1
-                fi
-                ;;
-        esac
-    done
-
-    # Validate arguments
-    if [ -z "$TARGET" ]; then
-        echo "Error: --target is required"
-        exit 1
-    fi
-
-    if [ "$COMMAND" = "install" ] && [ -z "$EXTRA_ARGS" ]; then
-        echo "Error: install command requires --apiToken and --zoneId"
-        exit 1
-    fi
-}
-
-# Create systemd service and timer
-create_systemd_units() {
-    local service_name="cf-ddns-${TARGET//[.]/-}.service"
-    local timer_name="cf-ddns-${TARGET//[.]/-}.timer"
-    local script_dir="$(dirname "$(readlink -f "$0")")"
-
-    # Create service unit
-    cat > "/etc/systemd/system/$service_name" << EOF
+    local args="$*"
+    
+    cat > "/etc/systemd/system/cf-ddns-${target}.service" << EOF
 [Unit]
-Description=Synchronizes DNS records for $TARGET
+Description=Synchronizes DNS records for ${target}
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart=$script_dir/cf-ddns-sync.sh --target $TARGET $EXTRA_ARGS
+ExecStart=${SCRIPT_DIR}/cf-ddns-sync.sh ${args}
+StandardOutput=syslog
+StandardError=syslog
+SyslogIdentifier=cf-ddns-${target}
 
 [Install]
 WantedBy=multi-user.target
 EOF
+}
 
-    # Create timer unit
-    cat > "/etc/systemd/system/$timer_name" << EOF
+create_timer_file() {
+    local target="$1"
+    
+    cat > "/etc/systemd/system/cf-ddns-${target}.timer" << EOF
 [Unit]
-Description=Keeps DNS records for $TARGET synchronized every minute
+Description=Keeps DNS records for ${target} synchronized every minute
 After=network-online.target
 Wants=network-online.target
 
@@ -111,49 +62,80 @@ OnUnitActiveSec=1min
 [Install]
 WantedBy=timers.target
 EOF
-
-    chmod 644 "/etc/systemd/system/$service_name"
-    chmod 644 "/etc/systemd/system/$timer_name"
 }
 
-# Install service and timer
 install_service() {
-    local timer_name="cf-ddns-${TARGET//[.]/-}.timer"
-    create_systemd_units
+    local target="$1"
+    shift
+    local args="$*"
+
+    create_service_file "$target" "$args"
+    create_timer_file "$target"
+    
     systemctl daemon-reload
-    systemctl stop "$timer_name" 2>/dev/null || true
-    systemctl enable --now "$timer_name"
-    echo "Service installed successfully"
+    systemctl stop "cf-ddns-${target}.timer" 2>/devnull || true
+    systemctl enable --now "cf-ddns-${target}.timer"
 }
 
-# Uninstall service and timer
 uninstall_service() {
-    local service_name="cf-ddns-${TARGET//[.]/-}.service"
-    local timer_name="cf-ddns-${TARGET//[.]/-}.timer"
+    local target="$1"
     
-    systemctl stop "$timer_name" 2>/dev/null || true
-    systemctl disable "$timer_name" 2>/dev/null || true
-    systemctl disable "$service_name" 2>/dev/null || true
-    
-    rm -f "/etc/systemd/system/$service_name"
-    rm -f "/etc/systemd/system/$timer_name"
-    
+    systemctl stop "cf-ddns-${target}.timer" 2>/dev/null || true
+    systemctl disable "cf-ddns-${target}.timer" 2>/dev/null || true
+    rm -f "/etc/systemd/system/cf-ddns-${target}.timer"
+    rm -f "/etc/systemd/system/cf-ddns-${target}.service"
     systemctl daemon-reload
-    echo "Service uninstalled successfully"
 }
 
-# Main execution
-parse_args "$@"
+# Parse command line arguments
+command=""
+target=""
+api_token=""
+zone_id=""
+extra_args=""
 
-case "$COMMAND" in
-    install)
-        install_service
-        ;;
-    uninstall)
-        uninstall_service
-        ;;
-    *)
-        echo "Error: Unknown command $COMMAND"
-        exit 1
-        ;;
-esac
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        install|uninstall)
+            command="$1"
+            shift
+            ;;
+        --target)
+            target="$2"
+            shift 2
+            ;;
+        --apiToken)
+            api_token="$2"
+            extra_args="$extra_args $1 $2"
+            shift 2
+            ;;
+        --zoneId)
+            zone_id="$2"
+            extra_args="$extra_args $1 $2"
+            shift 2
+            ;;
+        --source|--ttl)
+            extra_args="$extra_args $1 $2"
+            shift 2
+            ;;
+        -h|--help)
+            print_usage
+            ;;
+        *)
+            echo "Error: Unknown argument $1"
+            print_usage
+            ;;
+    esac
+done
+
+# Validate arguments
+[[ -z "$command" ]] && { echo "Error: Command required"; print_usage; }
+[[ -z "$target" ]] && { echo "Error: --target required"; print_usage; }
+
+if [[ "$command" == "install" ]]; then
+    [[ -z "$api_token" ]] && { echo "Error: --apiToken required for install"; print_usage; }
+    [[ -z "$zone_id" ]] && { echo "Error: --zoneId required for install"; print_usage; }
+    install_service "$target" "$extra_args"
+else
+    uninstall_service "$target"
+fi

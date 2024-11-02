@@ -37,6 +37,8 @@ The command must create a `systemd` SERVICE to execute `cf-ddns-sync.sh` script 
   - The service type should be set to `simple`.
   - All arguments to this script (except the first argument, install, which specifies the command) should be passed to `cf-ddns-sync.sh`.
   - The `cf-ddns-sync.sh` script is assumed to be located in the same directory as the `cf-ddns.sh` script.
+  - The service should be configured to redirect both `StandardOutput` and `StandardError` to `syslog`.
+  - The service should be configured to use `cf-ddns-$TARGET_NAME` as `SyslogIdentifier`.
   - The service should be configured to execute only after the network is available.
 
 The command must also create a `systemd` TIMER with the following specifications:
