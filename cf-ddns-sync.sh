@@ -23,15 +23,20 @@ get_local_ipv4() {
 # Function to get public IPv4 address
 get_public_ipv4() {
     local interface="$1"
+    local public_ip
+    
     if [[ -n "$interface" ]]; then
         local local_ip
         local_ip=$(get_local_ipv4 "$interface")
-        log_verbose "Getting public IPv4 address for interface ${interface}..."
-        dig -b "$local_ip" +short txt ch whoami.cloudflare @1.1.1.1 | tr -d '\"'
+        if [[ -n "$local_ip" ]]; then
+            public_ip=$(dig -b "$local_ip" +short txt ch whoami.cloudflare @1.1.1.1 | tr -d '\"')
+            [[ -n "$public_ip" ]] && log_verbose "Got IPv4 address '$public_ip' for interface '$interface'."
+        fi
     else
-        log_verbose "Getting public IPv4 address..."
-        dig +short txt ch whoami.cloudflare @1.1.1.1 | tr -d '\"'
+        public_ip=$(dig +short txt ch whoami.cloudflare @1.1.1.1 | tr -d '\"')
+        [[ -n "$public_ip" ]] && log_verbose "Got IPv4 address '$public_ip'."
     fi
+    echo "$public_ip"
 }
 
 # Function to get current DNS records
@@ -158,19 +163,27 @@ fi
 DNS_RECORDS=$(get_dns_records "$ZONE_ID" "$TARGET" "$API_TOKEN")
 
 # Process DNS records
-echo "$DNS_RECORDS" | jq -r '.result[] | .id + " " + .content' | while read -r record_id ip; do
-    if [[ ${SOURCE_IPS[$ip]+_} ]]; then
-        # IP exists in sources, remove from SOURCE_IPS to mark as processed
-        unset SOURCE_IPS["$ip"]
+declare -A CURRENT_RECORDS
+while IFS= read -r line; do
+    record_id=$(echo "$line" | jq -r '.id')
+    ip=$(echo "$line" | jq -r '.content')
+    CURRENT_RECORDS["$ip"]="$record_id"
+done < <(echo "$DNS_RECORDS" | jq -c '.result[]')
+
+# Synchronize records
+for ip in "${!SOURCE_IPS[@]}"; do
+    if [[ -n "${CURRENT_RECORDS[$ip]:-}" ]]; then
+        log_verbose "Skipping '$TARGET'."
+        unset CURRENT_RECORDS["$ip"]
     else
-        # IP not in sources, delete record
-        log_verbose "Deleting DNS record for IP $ip..."
-        delete_dns_record "$ZONE_ID" "$record_id" "$API_TOKEN"
+        log_verbose "Adding '$ip' to '$TARGET'."
+        create_dns_record "$ZONE_ID" "$TARGET" "$ip" "$API_TOKEN"
     fi
 done
 
-# Create new records for remaining IPs
-for ip in "${!SOURCE_IPS[@]}"; do
-    log_verbose "Creating DNS record for IP $ip..."
-    create_dns_record "$ZONE_ID" "$TARGET" "$ip" "$API_TOKEN"
+# Remove records that are no longer needed
+for ip in "${!CURRENT_RECORDS[@]}"; do
+    record_id="${CURRENT_RECORDS[$ip]}"
+    log_verbose "Removing '$ip' from '$TARGET'."
+    delete_dns_record "$ZONE_ID" "$record_id" "$API_TOKEN"
 done

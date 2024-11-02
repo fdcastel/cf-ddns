@@ -42,47 +42,36 @@ For each specified network interface in `--source`, the script should retrieve t
         dig -b $IFACE_LOCAL_IPV4_ADDRESS +short txt ch whoami.cloudflare @1.1.1.1 | 
             tr -d '\"'
 
-When running in verbose mode, the verbose message must appear before executing the `dig` command. The message should read:
-
-    Getting public IPv4 address for interface $SOURCE_INTERFACE_NAME...
-
-This message must appear for each network interface specified in --source, providing clarity on the interface being processed.
+In verbose mode, the script should display the verbose message `Got IPv4 address '$PUBLIC_IPV4_ADDRESS' for interface '$SOURCE_INTERFACE_NAME'.` immediately after executing the `dig` command. This message must appear for each network interface specified in `--source`, providing clarity on the interface being processed.
 
 
 
-However, if no `--source` argument is provided, the script should skip retrieving the local IPv4 address and directly use the dig command without specifying the `-b` option:
+However, if no `--source` argument is provided, the script should skip retrieving the local IPv4 address and directly use the `dig` command without specifying the `-b` option:
 
     dig +short txt ch whoami.cloudflare @1.1.1.1 | 
         tr -d '\"'
 
-In verbose mode, the script should display the verbose message "Getting public IPv4 address..." immediately before executing the dig command.
+In verbose mode, the script should display the verbose message `Got IPv4 address '$PUBLIC_IPV4_ADDRESS'.` immediately after executing the `dig` command.
 
 
 
 # STEP 2:
 
-Now, the DNS A RECORDS of the specified TARGET hostname must be synchronized with the list of PUBLIC IPV4 ADDRESSES previously obtained.
-
-Lets call them SOURCE_IPV4_ADDRESSES and TARGET_DNS_RECORDS.
-
-FOR EACH SOURCE_IPV4_ADDRESSES we need to INSERT, UPDATE or DELETE a respective DNS A RECORD. 
-
-The UPDATE api call should not be called if the new ip address is the same of the current ip address for a given DNS A RECORD.
-
-The expected final output must be that TARGET_DNS_RECORDS reflect the exact same ipv4 addresses of SOURCE_IPV4_ADDRESSES.
-
-
-
-
-
 Now, to synchronize the list of DNS A records of the target hostname with the list of public IPv4 addresses obtained in the previous step (lets call it SOURCE_IPV4_ADDRESSES), the script should perform the following steps:
 
 1. **Retrieve Current DNS A Records**: Fetch the current A records for the target hostname (TARGET_DNS_RECORDS) using the Cloudflare API.
 
-2. **Compare and Synchronize DNS A Records**: For each IP in SOURCE_IPV4_ADDRESSES, check if there’s a corresponding DNS A record in TARGET_DNS_RECORDS:
+2. **Compare and Synchronize DNS A Records**: For each IP in SOURCE_IPV4_ADDRESSES, check if there’s a corresponding DNS A record in TARGET_DNS_RECORDS. There are 4 possible scenarios:
     - Skip: If an existing record already has the correct IP, skip the update to avoid redundant API calls.
     - Insert: If an IP in SOURCE_IPV4_ADDRESSES does not exist in TARGET_DNS_RECORDS, create a new DNS A record for it.
     - Update: If a matching DNS A record exists but with a different IP, update the record with the new IP.
-    - Delete Unmatched DNS A Records: For any IP in TARGET_DNS_RECORDS that is not present in SOURCE_IPV4_ADDRESSES, delete the DNS A record to ensure synchronization.
+    - Delete: For any IP in TARGET_DNS_RECORDS that is not present in SOURCE_IPV4_ADDRESSES, delete the DNS A record to ensure synchronization.
+
+    In verbose mode, for each of the four possible scenarios above, the script should display a corresponding verbose message:
+    
+    - Skip: `Skipping '$TARGET_DNS_RECORD'.`
+    - Insert: `Adding '$SOURCE_IPV4_ADDRESS' to '$TARGET_DNS_RECORD'.`
+    - Update: `Updating '$SOURCE_IPV4_ADDRESS' in '$TARGET_DNS_RECORD'.` 
+    - Delete: `Removing '$SOURCE_IPV4_ADDRESS' from '$TARGET_DNS_RECORD'.` 
 
 The final outcome should be that TARGET_DNS_RECORDS reflects the exact set of IPv4 addresses in SOURCE_IPV4_ADDRESSES, ensuring the DNS records are accurate and up-to-date with the public IPs of the specified interfaces.
