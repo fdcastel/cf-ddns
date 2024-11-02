@@ -1,0 +1,3 @@
+Write scripts based on the guidelines outlined in the cf-ddns.spec.md file.
+
+(Remember to add "cf-ddns-sync.sh" to the Working Set)
