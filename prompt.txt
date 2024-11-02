@@ -1,1 +1,0 @@
-Develop a script based on the guidelines outlined in the specification.md file.
