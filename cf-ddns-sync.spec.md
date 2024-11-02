@@ -20,8 +20,6 @@ The script must strictly avoid outputting any content to `stdout`.
 
 When invoked with the `-v` or `--verbose` flags, it may produce specific informative messages (referred to as verbose messages), which should be directed exclusively to `stderr`. 
 
-Ensure that any `curl` command using `POST`, `PUT` or `DELETE` methods does not display the HTTP response in `stdout`.
-
 The argument parser should validate all inputs and provide usage instructions if `-h` or `--help` is passed. 
 
 Upon validation of all arguments, the script execution should proceed as follows:
@@ -77,6 +75,10 @@ Now, to synchronize the list of DNS A records of the target hostname with the li
     - Update: `Updating '$SOURCE_IPV4_ADDRESS' in '$TARGET_DNS_RECORD'.` 
     - Delete: `Removing '$SOURCE_IPV4_ADDRESS' from '$TARGET_DNS_RECORD'.` 
 
+All `curl` commands utilizing `POST`, `PUT` or `DELETE` methods must store the HTTP response in a variable. The response will always be in JSON format. If the `success` property in the JSON response is `false`, the script should:
+  1. Write `ERROR: $error_message (code: $error_code).` to `stderr`, where `$error_code` and `$error_message` correspond to the `code` and `message` properties of the first object in the `errors` array of the JSON response.
+  2. Exit immediately with a status code of `1`.
 
+The script should return a status code of `0` upon successful completion without errors.
 
 The final outcome should be that TARGET_DNS_RECORDS reflects the exact set of IPv4 addresses in SOURCE_IPV4_ADDRESSES, ensuring the DNS records are accurate and up-to-date with the public IPs of the specified interfaces.

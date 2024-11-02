@@ -1,115 +1,50 @@
 #!/bin/bash
 
-# Error handling
-set -o errexit
-set -o nounset
-set -o pipefail
+set -euo pipefail
 
-# Logging function that only outputs to stderr when verbose mode is enabled
-log_verbose() {
-    if [[ "${VERBOSE:-false}" == "true" ]]; then
+# Default TTL value
+DEFAULT_TTL=60
+
+# Variables to store command line arguments
+API_TOKEN=""
+ZONE_ID=""
+TARGET_HOSTNAME=""
+SOURCE_INTERFACES=()
+TTL=$DEFAULT_TTL
+VERBOSE=false
+
+# Function to print verbose messages to stderr
+print_verbose() {
+    if [[ "$VERBOSE" == true ]]; then
         echo "$1" >&2
     fi
 }
 
-# Function to get local IPv4 address for an interface
-get_local_ipv4() {
-    local interface="$1"
-    ip -4 -oneline address show "$interface" | 
-        grep --only-matching --perl-regexp '((25[0-5]|(2[0-4]|1\d|[1-9]|)\d)\.?\b){4}' |
-        head -n 1
+# Function to print error messages to stderr
+print_error() {
+    echo "ERROR: $1" >&2
 }
 
-# Function to get public IPv4 address
-get_public_ipv4() {
-    local interface="$1"
-    local public_ip
-    
-    if [[ -n "$interface" ]]; then
-        local local_ip
-        local_ip=$(get_local_ipv4 "$interface")
-        if [[ -n "$local_ip" ]]; then
-            public_ip=$(dig -b "$local_ip" +short txt ch whoami.cloudflare @1.1.1.1 | tr -d '\"')
-            [[ -n "$public_ip" ]] && log_verbose "Got IPv4 address '$public_ip' for interface '$interface'."
-        fi
-    else
-        public_ip=$(dig +short txt ch whoami.cloudflare @1.1.1.1 | tr -d '\"')
-        [[ -n "$public_ip" ]] && log_verbose "Got IPv4 address '$public_ip'."
-    fi
-    echo "$public_ip"
-}
+# Usage instructions
+usage() {
+    cat >&2 << EOF
+Usage: $(basename "$0") --apiToken TOKEN --zoneId ZONE --target HOSTNAME [--source INTERFACE]... [--ttl TTL] [-v|--verbose]
 
-# Function to get current DNS records
-get_dns_records() {
-    local zone_id="$1"
-    local hostname="$2"
-    local api_token="$3"
+Required arguments:
+    --apiToken TOKEN     Cloudflare API token
+    --zoneId ZONE       DNS Zone ID
+    --target HOSTNAME   Target hostname for DNS record
 
-    curl -s -X GET "https://api.cloudflare.com/client/v4/zones/$zone_id/dns_records?type=A&name=$hostname" \
-        -H "Authorization: Bearer $api_token" \
-        -H "Content-Type: application/json"
-}
-
-# Function to create DNS record
-create_dns_record() {
-    local zone_id="$1"
-    local hostname="$2"
-    local ip="$3"
-    local ttl="$4"
-    local api_token="$5"
-
-    curl -s -X POST "https://api.cloudflare.com/client/v4/zones/$zone_id/dns_records" \
-        -H "Authorization: Bearer $api_token" \
-        -H "Content-Type: application/json" \
-        --data "{\"type\":\"A\",\"name\":\"$hostname\",\"content\":\"$ip\",\"ttl\":$ttl}" >/dev/null
-}
-
-# Function to update DNS record
-update_dns_record() {
-    local zone_id="$1"
-    local record_id="$2"
-    local hostname="$3"
-    local ip="$4"
-    local ttl="$5"
-    local api_token="$6"
-
-    curl -s -X PUT "https://api.cloudflare.com/client/v4/zones/$zone_id/dns_records/$record_id" \
-        -H "Authorization: Bearer $api_token" \
-        -H "Content-Type: application/json" \
-        --data "{\"type\":\"A\",\"name\":\"$hostname\",\"content\":\"$ip\",\"ttl\":$ttl}" >/dev/null
-}
-
-# Function to delete DNS record
-delete_dns_record() {
-    local zone_id="$1"
-    local record_id="$2"
-    local api_token="$3"
-
-    curl -s -X DELETE "https://api.cloudflare.com/client/v4/zones/$zone_id/dns_records/$record_id" \
-        -H "Authorization: Bearer $api_token" \
-        -H "Content-Type: application/json" >/dev/null
+Optional arguments:
+    --source INTERFACE  Network interface(s) to use (can be specified multiple times)
+    --ttl TTL          TTL for DNS records (default: 60)
+    -v, --verbose      Enable verbose output
+    -h, --help         Show this help message
+EOF
+    exit 1
 }
 
 # Parse command line arguments
-API_TOKEN=""
-ZONE_ID=""
-TARGET=""
-SOURCES=()
-VERBOSE=false
-TTL=60
-
-print_usage() {
-    echo "Usage: $0 --apiToken TOKEN --zoneId ZONE_ID --target HOSTNAME [--source INTERFACE]... [--ttl TTL] [-v|--verbose]" >&2
-    echo "Options:" >&2
-    echo "  --apiToken TOKEN    Cloudflare API token" >&2
-    echo "  --zoneId ZONE_ID   Cloudflare Zone ID" >&2
-    echo "  --target HOSTNAME  Target hostname" >&2
-    echo "  --source INTERFACE Network interface (can be specified multiple times)" >&2
-    echo "  --ttl TTL          TTL value for DNS records (default: 60)" >&2
-    echo "  -v, --verbose      Enable verbose output" >&2
-    echo "  -h, --help         Show this help message" >&2
-}
-
 while [[ $# -gt 0 ]]; do
     case $1 in
         --apiToken)
@@ -121,11 +56,11 @@ while [[ $# -gt 0 ]]; do
             shift 2
             ;;
         --target)
-            TARGET="$2"
+            TARGET_HOSTNAME="$2"
             shift 2
             ;;
         --source)
-            SOURCES+=("$2")
+            SOURCE_INTERFACES+=("$2")
             shift 2
             ;;
         --ttl)
@@ -137,61 +72,134 @@ while [[ $# -gt 0 ]]; do
             shift
             ;;
         -h|--help)
-            print_usage
-            exit 0
+            usage
             ;;
         *)
-            echo "Error: Unknown option $1" >&2
-            print_usage
-            exit 1
+            print_error "Unknown argument: $1"
+            usage
             ;;
     esac
 done
 
 # Validate required arguments
-if [[ -z "$API_TOKEN" || -z "$ZONE_ID" || -z "$TARGET" ]]; then
-    echo "Error: Missing required arguments" >&2
-    print_usage
-    exit 1
-fi
+[[ -z "$API_TOKEN" ]] && print_error "Missing required argument: --apiToken" && usage
+[[ -z "$ZONE_ID" ]] && print_error "Missing required argument: --zoneId" && usage
+[[ -z "$TARGET_HOSTNAME" ]] && print_error "Missing required argument: --target" && usage
 
-# Get public IPv4 addresses
-declare -A SOURCE_IPS
-if [[ ${#SOURCES[@]} -eq 0 ]]; then
-    ip=$(get_public_ipv4 "")
-    [[ -n "$ip" ]] && SOURCE_IPS["$ip"]=1
-else
-    for interface in "${SOURCES[@]}"; do
-        ip=$(get_public_ipv4 "$interface")
-        [[ -n "$ip" ]] && SOURCE_IPS["$ip"]=1
-    done
-fi
-
-# Get current DNS records
-DNS_RECORDS=$(get_dns_records "$ZONE_ID" "$TARGET" "$API_TOKEN")
-
-# Process DNS records
-declare -A CURRENT_RECORDS
-while IFS= read -r line; do
-    record_id=$(echo "$line" | jq -r '.id')
-    ip=$(echo "$line" | jq -r '.content')
-    CURRENT_RECORDS["$ip"]="$record_id"
-done < <(echo "$DNS_RECORDS" | jq -c '.result[]')
-
-# Synchronize records
-for ip in "${!SOURCE_IPS[@]}"; do
-    if [[ -n "${CURRENT_RECORDS[$ip]:-}" ]]; then
-        log_verbose "Skipping '$TARGET'."
-        unset CURRENT_RECORDS["$ip"]
+# Function to get public IPv4 addresses
+get_public_ipv4_addresses() {
+    local public_ips=()
+    
+    if [[ ${#SOURCE_INTERFACES[@]} -eq 0 ]]; then
+        local ip
+        ip=$(dig +short txt ch whoami.cloudflare @1.1.1.1 | tr -d '"')
+        print_verbose "Got IPv4 address '$ip'."
+        public_ips+=("$ip")
     else
-        log_verbose "Adding '$ip' to '$TARGET'."
-        create_dns_record "$ZONE_ID" "$TARGET" "$ip" "$TTL" "$API_TOKEN"
+        for iface in "${SOURCE_INTERFACES[@]}"; do
+            local local_ip
+            local_ip=$(ip -4 -oneline address show "$iface" | 
+                grep --only-matching --perl-regexp '((25[0-5]|(2[0-4]|1\d|[1-9]|)\d)\.?\b){4}' | 
+                head -n 1)
+            
+            local public_ip
+            public_ip=$(dig -b "$local_ip" +short txt ch whoami.cloudflare @1.1.1.1 | tr -d '"')
+            print_verbose "Got IPv4 address '$public_ip' for interface '$iface'."
+            public_ips+=("$public_ip")
+        done
     fi
-done
+    
+    echo "${public_ips[@]}"
+}
 
-# Remove records that are no longer needed
-for ip in "${!CURRENT_RECORDS[@]}"; do
-    record_id="${CURRENT_RECORDS[$ip]}"
-    log_verbose "Removing '$ip' from '$TARGET'."
-    delete_dns_record "$ZONE_ID" "$record_id" "$API_TOKEN"
-done
+# Function to handle Cloudflare API responses
+handle_cf_response() {
+    local response="$1"
+    if [[ $(echo "$response" | jq -r .success) != "true" ]]; then
+        local error_code
+        local error_message
+        error_code=$(echo "$response" | jq -r '.errors[0].code')
+        error_message=$(echo "$response" | jq -r '.errors[0].message')
+        print_error "$error_message (code: $error_code)."
+        exit 1
+    fi
+}
+
+# Function to get current DNS records
+get_dns_records() {
+    local response
+    response=$(curl -s -X GET "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records?type=A&name=$TARGET_HOSTNAME" \
+        -H "Authorization: Bearer $API_TOKEN" \
+        -H "Content-Type: application/json")
+    handle_cf_response "$response"
+    echo "$response"
+}
+
+# Function to create DNS record
+create_dns_record() {
+    local ip="$1"
+    local response
+    response=$(curl -s -X POST "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records" \
+        -H "Authorization: Bearer $API_TOKEN" \
+        -H "Content-Type: application/json" \
+        --data "{\"type\":\"A\",\"name\":\"$TARGET_HOSTNAME\",\"content\":\"$ip\",\"ttl\":$TTL}")
+    handle_cf_response "$response"
+    print_verbose "Adding '$ip' to '$TARGET_HOSTNAME'."
+}
+
+# Function to update DNS record
+update_dns_record() {
+    local record_id="$1"
+    local ip="$2"
+    local response
+    response=$(curl -s -X PUT "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records/$record_id" \
+        -H "Authorization: Bearer $API_TOKEN" \
+        -H "Content-Type: application/json" \
+        --data "{\"type\":\"A\",\"name\":\"$TARGET_HOSTNAME\",\"content\":\"$ip\",\"ttl\":$TTL}")
+    handle_cf_response "$response"
+    print_verbose "Updating '$ip' in '$TARGET_HOSTNAME'."
+}
+
+# Function to delete DNS record
+delete_dns_record() {
+    local record_id="$1"
+    local ip="$2"
+    local response
+    response=$(curl -s -X DELETE "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records/$record_id" \
+        -H "Authorization: Bearer $API_TOKEN" \
+        -H "Content-Type: application/json")
+    handle_cf_response "$response"
+    print_verbose "Removing '$ip' from '$TARGET_HOSTNAME'."
+}
+
+# Main logic
+main() {
+    # Get public IPv4 addresses
+    IFS=" " read -r -a source_ips <<< "$(get_public_ipv4_addresses)"
+    
+    # Get current DNS records
+    dns_records=$(get_dns_records)
+    
+    # Process each existing DNS record
+    while IFS= read -r record; do
+        [[ -z "$record" ]] && continue
+        
+        record_id=$(echo "$record" | jq -r .id)
+        record_ip=$(echo "$record" | jq -r .content)
+        
+        if [[ " ${source_ips[*]} " =~ " ${record_ip} " ]]; then
+            print_verbose "Skipping '$TARGET_HOSTNAME'."
+        else
+            delete_dns_record "$record_id" "$record_ip"
+        fi
+    done < <(echo "$dns_records" | jq -c '.result[]')
+    
+    # Add new records for IPs not already in DNS
+    for ip in "${source_ips[@]}"; do
+        if ! echo "$dns_records" | jq -e ".result[] | select(.content == \"$ip\")" > /dev/null; then
+            create_dns_record "$ip"
+        fi
+    done
+}
+
+main
