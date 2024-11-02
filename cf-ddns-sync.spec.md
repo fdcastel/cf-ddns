@@ -71,9 +71,19 @@ If the `dig` command returns an empty response in any scenario, the script shoul
 
 Now, to synchronize the list of DNS A records of the target hostname with the list of public IPv4 addresses obtained in the previous step (lets call it SOURCE_IPV4_ADDRESSES), the script should perform the following steps:
 
-1. **Retrieve Current DNS A Records**: Fetch the current A records for the target hostname (TARGET_DNS_RECORDS) using the Cloudflare API.
+1. **Retrieve Current DNS A Records**: Implement a caching mechanism for DNS records following these rules:
 
-    If no records are returned the script should write `ERROR: Unknown host '$TARGET_HOSTNAME'.` to `stderr` and exit immediately with a status code of `1`.
+   a. Cache Location: Store the cache in `/var/cache/cf-ddns/${ZONE_ID}_${TARGET_HOSTNAME}.cache` as a JSON file.
+   
+   b. Cache Format: The cache file should contain:
+      - `timestamp`: Unix timestamp of when the cache was last updated.
+      - `records`: Array of DNS records from the last Cloudflare API response.
+   
+   c. Cache Validation:
+      - If the cache file exists and is readable, use the cached records.
+      - Otherwise, fetch records from Cloudflare API and update the cache.  If necessary, create the cache directory.
+   
+   If no records are returned (from cache or API) the script should write `ERROR: Unknown host '$TARGET_HOSTNAME'.` to `stderr` and exit immediately with a status code of `1`.
 
 2. **Compare and Synchronize DNS A Records**: For each IP in SOURCE_IPV4_ADDRESSES, check if there’s a corresponding DNS A record in TARGET_DNS_RECORDS. There are 4 possible scenarios:
     - Skip: If an existing record already has the correct IP, skip the update to avoid redundant API calls.
