@@ -15,11 +15,13 @@ The script should have a command-line argument parser that accepts the following
 - `--target`: (Required) Provides the hostname for the Cloudflare DNS record, which must already exist in the specified zone.
 - `--source`: (Optional) Lists the network interfaces from which to retrieve IPv4 addresses; can accept zero, one, or multiple interfaces.
 
+The script must strictly avoid outputting any content to `stdout`.
+
+When invoked with the `-v` or `--verbose` flags, it may produce specific informative messages (referred to as verbose messages), which should be directed exclusively to `stderr`. 
+
+Ensure that any `curl` command using `POST`, `PUT` or `DELETE` methods does not display the HTTP response in `stdout`.
+
 The argument parser should validate all inputs and provide usage instructions if `-h` or `--help` is passed. 
-
-The script should suppress output unless running in verbose mode, which can be activated with `-v` or `--verbose`.
-
-All verbose outputs must be redirected to `stderr`.
 
 Upon validation of all arguments, the script execution should proceed as follows:
 
@@ -40,7 +42,7 @@ For each specified network interface in `--source`, the script should retrieve t
         dig -b $IFACE_LOCAL_IPV4_ADDRESS +short txt ch whoami.cloudflare @1.1.1.1 | 
             tr -d '\"'
 
-When running in verbose mode, the script should display a message before executing the `dig` command. The message should read:
+When running in verbose mode, the verbose message must appear before executing the `dig` command. The message should read:
 
     Getting public IPv4 address for interface $SOURCE_INTERFACE_NAME...
 
@@ -53,7 +55,7 @@ However, if no `--source` argument is provided, the script should skip retrievin
     dig +short txt ch whoami.cloudflare @1.1.1.1 | 
         tr -d '\"'
 
-When running in verbose mode, the script should simply report "Getting public IPv4 address..." before the execution of `dig` command. 
+In verbose mode, the script should display the verbose message "Getting public IPv4 address..." immediately before executing the dig command.
 
 
 
