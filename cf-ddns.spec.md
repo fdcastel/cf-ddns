@@ -8,20 +8,19 @@ Create two `bash` scripts named `cf-ddns-install.sh` and `cf-ddns-uninstall.sh` 
 
 Create a `bash` script named `cf-ddns-install.sh` to install the `cf-ddns-sync.sh` script as a `systemd` service on Linux.
 
-The script should have a command-line argument parser which accepts the same arguments as the `cf-ddns-sync.sh` script.
+The script should have a command-line argument parser which accepts the same arguments as the `cf-ddns-sync.sh` script, except the `--verbose` argument.
 
 The argument parser should validate all inputs and provide usage instructions if `-h` or `--help` is passed.
 
 Upon validation of all arguments, the script execution should proceed as follows:
 
 The script must create a `systemd` SERVICE with the following requirements:
-  - The service is required to execute the `cf-ddns-sync.sh` script, passing along all arguments received from the command line.
+  - The service is required to execute the `cf-ddns-sync.sh` script, passing along all arguments received from the command line plus the `--verbose` argument.
   - The `cf-ddns-sync.sh` script must to be located in the same directory as this script.
   - The service description should be in the format: `Synchronizes DNS records for $TARGET_NAME`, where $TARGET_NAME is the value from the `--target` argument.
   - The service file name (`systemd` unit) should be in the format `cf-ddns-$TARGET_NAME.service`.
   - The service type should be set to `simple`.
-  - The service should be configured to redirect both `StandardOutput` and `StandardError` to `syslog`.
-  - The service should be configured to use `cf-ddns-$TARGET_NAME` as `SyslogIdentifier`, replacing any '.' with '_'.
+  - The service output should be logged in `systemd` journal.
   - The service should be configured to execute only after the network is available.
 
 The script must also create a `systemd` TIMER with the following specifications:

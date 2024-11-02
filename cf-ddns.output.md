@@ -25,5 +25,5 @@ The install script accepts the same arguments as cf-ddns-sync.sh and creates the
 Make sure to:
 
 1.Place both scripts in the same directory as cf-ddns-sync.sh
-2.Make them executable: chmod +x cf-ddns-{install,uninstall}.sh
-3.Run the install script with root privileges since it needs to write to /etc/systemd/system/
+2.Make them executable: `chmod +x cf-ddns-{install,uninstall}.sh`
+3.Run the install script with root privileges since it needs to write to `/etc/systemd/system/`
