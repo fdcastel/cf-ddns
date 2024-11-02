@@ -8,21 +8,21 @@ SYSTEMD_DIR="/etc/systemd/system"
 # Display usage information
 show_usage() {
     cat << EOF
-Usage: $(basename "$0") COMMAND --target hostname [OPTIONS]
+Usage: cf-ddns.sh COMMAND --target TARGET [OPTIONS]
 
 Commands:
-    install     Install and start the cf-ddns service
-    uninstall   Remove the cf-ddns service
+    install     Install cf-ddns service
+    uninstall   Uninstall cf-ddns service
 
 Required arguments:
     --target    Target hostname (e.g., host1.example.com)
 
 Options for install command:
-    All additional arguments will be passed to cf-ddns-sync.sh
-    Use -h or --help with cf-ddns-sync.sh to see available options
-
-For help:
-    $(basename "$0") -h | --help
+    --apiToken  Cloudflare API token
+    --zoneId    Cloudflare Zone ID
+    --source    Source for IP address lookup (optional)
+    --ttl       TTL value for DNS record (optional)
+    -h, --help  Show this help message
 EOF
     exit 1
 }
@@ -35,34 +35,93 @@ check_root() {
     fi
 }
 
-# Generate systemd service unit content
-generate_service() {
-    local target_name="$1"
+validate_arguments() {
+    if [ $# -lt 2 ]; then
+        show_usage
+    fi
+
+    command="$1"
     shift
-    local extra_args="$*"
+
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --target)
+                target="$2"
+                shift 2
+                ;;
+            --apiToken)
+                api_token="$2"
+                shift 2
+                ;;
+            --zoneId)
+                zone_id="$2"
+                shift 2
+                ;;
+            --source)
+                source_arg="$2"
+                shift 2
+                ;;
+            --ttl)
+                ttl="$2"
+                shift 2
+                ;;
+            -h|--help)
+                show_usage
+                ;;
+            *)
+                echo "Error: Unknown argument $1"
+                show_usage
+                ;;
+        esac
+    done
+
+    if [ -z "${target:-}" ]; then
+        echo "Error: --target is required"
+        show_usage
+    fi
+
+    if [ "$command" = "install" ]; then
+        if [ -z "${api_token:-}" ] || [ -z "${zone_id:-}" ]; then
+            echo "Error: --apiToken and --zoneId are required for install command"
+            show_usage
+        fi
+    fi
+}
+
+create_service_file() {
+    local service_name="cf-ddns-$target"
+    local args="--target $target --apiToken $api_token --zoneId $zone_id"
     
-    cat << EOF
+    if [ -n "${source_arg:-}" ]; then
+        args="$args --source $source_arg"
+    fi
+    if [ -n "${ttl:-}" ]; then
+        args="$args --ttl $ttl"
+    fi
+
+    cat > "/etc/systemd/system/$service_name.service" << EOF
 [Unit]
-Description=Synchronizes DNS records for ${target_name}
+Description=Synchronizes DNS records for $target
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart=${SCRIPT_DIR}/cf-ddns-sync.sh --target ${target_name} ${extra_args}
+ExecStart=/opt/cf-ddns/cf-ddns-sync.sh $args
 
 [Install]
 WantedBy=multi-user.target
 EOF
 }
 
-# Generate systemd timer unit content
-generate_timer() {
-    local target_name="$1"
+create_timer_file() {
+    local service_name="cf-ddns-$target"
     
-    cat << EOF
+    cat > "/etc/systemd/system/$service_name.timer" << EOF
 [Unit]
-Description=Keeps DNS records for ${target_name} synchronized every minute
+Description=Keeps DNS records for $target synchronized every minute
+After=network-online.target
+Wants=network-online.target
 
 [Timer]
 OnBootSec=1min
@@ -73,40 +132,28 @@ WantedBy=timers.target
 EOF
 }
 
-# Install the service and timer
-do_install() {
-    local target_name="$1"
-    shift
-    local service_name="cf-ddns-${target_name}"
+install_service() {
+    local service_name="cf-ddns-$target"
     
-    # Create service unit file
-    generate_service "$target_name" "$@" > "${SYSTEMD_DIR}/${service_name}.service"
+    create_service_file
+    create_timer_file
     
-    # Create timer unit file
-    generate_timer "$target_name" > "${SYSTEMD_DIR}/${service_name}.timer"
-    
-    # Reload systemd and start service
     systemctl daemon-reload
-    systemctl stop "${service_name}.timer" 2>/dev/null || true
-    systemctl enable --now "${service_name}.timer"
+    systemctl stop "$service_name.timer" 2>/dev/null || true
+    systemctl enable --now "$service_name.timer"
     
     echo "Service installed and started successfully"
 }
 
-# Uninstall the service and timer
-do_uninstall() {
-    local target_name="$1"
-    local service_name="cf-ddns-${target_name}"
+uninstall_service() {
+    local service_name="cf-ddns-$target"
     
-    # Stop and disable service/timer
-    systemctl stop "${service_name}.timer" 2>/dev/null || true
-    systemctl disable "${service_name}.timer" 2>/dev/null || true
+    systemctl stop "$service_name.timer" 2>/dev/null || true
+    systemctl disable "$service_name.timer" 2>/dev/null || true
     
-    # Remove unit files
-    rm -f "${SYSTEMD_DIR}/${service_name}.service"
-    rm -f "${SYSTEMD_DIR}/${service_name}.timer"
+    rm -f "/etc/systemd/system/$service_name.service"
+    rm -f "/etc/systemd/system/$service_name.timer"
     
-    # Reload systemd
     systemctl daemon-reload
     
     echo "Service uninstalled successfully"
@@ -116,60 +163,18 @@ do_uninstall() {
 main() {
     check_root
     
-    # Parse command
-    if [ $# -lt 1 ]; then
-        show_usage
-    fi
+    validate_arguments "$@"
     
-    command="$1"
-    shift
-    
-    case "$command" in
-        -h|--help)
-            show_usage
-            ;;
-        install|uninstall)
-            ;;
-        *)
-            echo "Error: Invalid command '$command'"
-            show_usage
-            ;;
-    esac
-    
-    # Parse target argument
-    target_name=""
-    while [ $# -gt 0 ]; do
-        case "$1" in
-            --target)
-                shift
-                target_name="$1"
-                shift
-                ;;
-            -h|--help)
-                show_usage
-                ;;
-            *)
-                if [ "$command" = "uninstall" ]; then
-                    echo "Error: Uninstall command only accepts --target argument"
-                    exit 1
-                fi
-                shift
-                ;;
-        esac
-    done
-    
-    if [ -z "$target_name" ]; then
-        echo "Error: --target argument is required"
-        show_usage
-    fi
-    
-    # Execute requested command
     case "$command" in
         install)
-            do_install "$target_name" "$@"
+            install_service
             ;;
         uninstall)
-            do_uninstall "$target_name"
+            uninstall_service
+            ;;
+        *)
+            echo "Error: Unknown command $command"
+            show_usage
             ;;
     esac
 }
