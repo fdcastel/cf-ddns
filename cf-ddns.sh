@@ -2,124 +2,105 @@
 
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-SYSTEMD_DIR="/etc/systemd/system"
+# Check if running as root
+if [ "$EUID" -ne 0 ]; then
+    echo "Error: This script must be run as root"
+    exit 1
+fi
 
-# Display usage information
-show_usage() {
+# Display help message
+show_help() {
     cat << EOF
-Usage: cf-ddns.sh COMMAND --target TARGET [OPTIONS]
+Usage: cf-ddns.sh COMMAND [OPTIONS]
 
 Commands:
     install     Install cf-ddns service
-    uninstall   Uninstall cf-ddns service
+    uninstall   Remove cf-ddns service
 
-Required arguments:
-    --target    Target hostname (e.g., host1.example.com)
+Options:
+    -h, --help          Show this help message
+    --target            DNS record to update (required)
+    --apiToken          Cloudflare API token (required for install)
+    --zoneId           Cloudflare Zone ID (required for install)
+    --source           Source IP address (optional)
+    --ttl              TTL for DNS record (optional)
 
-Options for install command:
-    --apiToken  Cloudflare API token
-    --zoneId    Cloudflare Zone ID
-    --source    Source for IP address lookup (optional)
-    --ttl       TTL value for DNS record (optional)
-    -h, --help  Show this help message
+Examples:
+    cf-ddns.sh install --target host1.example.com --apiToken TOKEN --zoneId ZONE
+    cf-ddns.sh uninstall --target host1.example.com
 EOF
-    exit 1
+    exit 0
 }
 
-# Validate root privileges
-check_root() {
-    if [ "$EUID" -ne 0 ]; then
-        echo "Error: This script must be run as root"
-        exit 1
-    fi
-}
+# Parse command line arguments
+parse_args() {
+    COMMAND=""
+    TARGET=""
+    EXTRA_ARGS=""
 
-validate_arguments() {
-    if [ $# -lt 2 ]; then
-        show_usage
-    fi
+    [ $# -eq 0 ] && show_help
 
-    command="$1"
+    COMMAND="$1"
     shift
 
-    while [ $# -gt 0 ]; do
+    while [[ $# -gt 0 ]]; do
         case "$1" in
-            --target)
-                target="$2"
-                shift 2
-                ;;
-            --apiToken)
-                api_token="$2"
-                shift 2
-                ;;
-            --zoneId)
-                zone_id="$2"
-                shift 2
-                ;;
-            --source)
-                source_arg="$2"
-                shift 2
-                ;;
-            --ttl)
-                ttl="$2"
-                shift 2
-                ;;
             -h|--help)
-                show_usage
+                show_help
+                ;;
+            --target)
+                TARGET="$2"
+                shift 2
                 ;;
             *)
-                echo "Error: Unknown argument $1"
-                show_usage
+                if [ "$COMMAND" = "install" ]; then
+                    EXTRA_ARGS="$EXTRA_ARGS $1 $2"
+                    shift 2
+                else
+                    echo "Error: Unknown argument $1"
+                    exit 1
+                fi
                 ;;
         esac
     done
 
-    if [ -z "${target:-}" ]; then
+    # Validate arguments
+    if [ -z "$TARGET" ]; then
         echo "Error: --target is required"
-        show_usage
+        exit 1
     fi
 
-    if [ "$command" = "install" ]; then
-        if [ -z "${api_token:-}" ] || [ -z "${zone_id:-}" ]; then
-            echo "Error: --apiToken and --zoneId are required for install command"
-            show_usage
-        fi
+    if [ "$COMMAND" = "install" ] && [ -z "$EXTRA_ARGS" ]; then
+        echo "Error: install command requires --apiToken and --zoneId"
+        exit 1
     fi
 }
 
-create_service_file() {
-    local service_name="cf-ddns-$target"
-    local args="--target $target --apiToken $api_token --zoneId $zone_id"
-    
-    if [ -n "${source_arg:-}" ]; then
-        args="$args --source $source_arg"
-    fi
-    if [ -n "${ttl:-}" ]; then
-        args="$args --ttl $ttl"
-    fi
+# Create systemd service and timer
+create_systemd_units() {
+    local service_name="cf-ddns-${TARGET//[.]/-}.service"
+    local timer_name="cf-ddns-${TARGET//[.]/-}.timer"
+    local script_dir="$(dirname "$(readlink -f "$0")")"
 
-    cat > "/etc/systemd/system/$service_name.service" << EOF
+    # Create service unit
+    cat > "/etc/systemd/system/$service_name" << EOF
 [Unit]
-Description=Synchronizes DNS records for $target
+Description=Synchronizes DNS records for $TARGET
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart=/opt/cf-ddns/cf-ddns-sync.sh $args
+ExecStart=$script_dir/cf-ddns-sync.sh --target $TARGET $EXTRA_ARGS
 
 [Install]
 WantedBy=multi-user.target
 EOF
-}
 
-create_timer_file() {
-    local service_name="cf-ddns-$target"
-    
-    cat > "/etc/systemd/system/$service_name.timer" << EOF
+    # Create timer unit
+    cat > "/etc/systemd/system/$timer_name" << EOF
 [Unit]
-Description=Keeps DNS records for $target synchronized every minute
+Description=Keeps DNS records for $TARGET synchronized every minute
 After=network-online.target
 Wants=network-online.target
 
@@ -130,53 +111,49 @@ OnUnitActiveSec=1min
 [Install]
 WantedBy=timers.target
 EOF
+
+    chmod 644 "/etc/systemd/system/$service_name"
+    chmod 644 "/etc/systemd/system/$timer_name"
 }
 
+# Install service and timer
 install_service() {
-    local service_name="cf-ddns-$target"
-    
-    create_service_file
-    create_timer_file
-    
+    local timer_name="cf-ddns-${TARGET//[.]/-}.timer"
+    create_systemd_units
     systemctl daemon-reload
-    systemctl stop "$service_name.timer" 2>/dev/null || true
-    systemctl enable --now "$service_name.timer"
-    
-    echo "Service installed and started successfully"
+    systemctl stop "$timer_name" 2>/dev/null || true
+    systemctl enable --now "$timer_name"
+    echo "Service installed successfully"
 }
 
+# Uninstall service and timer
 uninstall_service() {
-    local service_name="cf-ddns-$target"
+    local service_name="cf-ddns-${TARGET//[.]/-}.service"
+    local timer_name="cf-ddns-${TARGET//[.]/-}.timer"
     
-    systemctl stop "$service_name.timer" 2>/dev/null || true
-    systemctl disable "$service_name.timer" 2>/dev/null || true
+    systemctl stop "$timer_name" 2>/dev/null || true
+    systemctl disable "$timer_name" 2>/dev/null || true
+    systemctl disable "$service_name" 2>/dev/null || true
     
-    rm -f "/etc/systemd/system/$service_name.service"
-    rm -f "/etc/systemd/system/$service_name.timer"
+    rm -f "/etc/systemd/system/$service_name"
+    rm -f "/etc/systemd/system/$timer_name"
     
     systemctl daemon-reload
-    
     echo "Service uninstalled successfully"
 }
 
-# Main script execution
-main() {
-    check_root
-    
-    validate_arguments "$@"
-    
-    case "$command" in
-        install)
-            install_service
-            ;;
-        uninstall)
-            uninstall_service
-            ;;
-        *)
-            echo "Error: Unknown command $command"
-            show_usage
-            ;;
-    esac
-}
+# Main execution
+parse_args "$@"
 
-main "$@"
+case "$COMMAND" in
+    install)
+        install_service
+        ;;
+    uninstall)
+        uninstall_service
+        ;;
+    *)
+        echo "Error: Unknown command $COMMAND"
+        exit 1
+        ;;
+esac

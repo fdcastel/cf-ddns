@@ -36,6 +36,7 @@ The command must create a `systemd` SERVICE to execute `cf-ddns-sync.sh` script 
   - The service file name (`systemd` unit) should be in the format `cf-ddns-$TARGET_NAME.service`.
   - The service type should be set to `simple`.
   - All arguments to this script (except the first argument, install, which specifies the command) should be passed to `cf-ddns-sync.sh`.
+  - The `cf-ddns-sync.sh` script is assumed to be located in the same directory as the `cf-ddns.sh` script.
   - The service should be configured to execute only after the network is available.
 
 The command must also create a `systemd` TIMER with the following specifications:
