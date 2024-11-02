@@ -14,6 +14,7 @@ The script should have a command-line argument parser that accepts the following
 - `--zoneId`: (Required) Identifies the DNS Zone ID for the target DNS record, necessary for API calls.
 - `--target`: (Required) Provides the hostname for the Cloudflare DNS record, which must already exist in the specified zone.
 - `--source`: (Optional) Lists the network interfaces from which to retrieve IPv4 addresses; can accept zero, one, or multiple interfaces.
+- `--ttl`: (Optional) Integer value for the `ttl` property of the DNS records.  If unspecified, it should default to `60`.
 
 The script must strictly avoid outputting any content to `stdout`.
 
@@ -67,11 +68,15 @@ Now, to synchronize the list of DNS A records of the target hostname with the li
     - Update: If a matching DNS A record exists but with a different IP, update the record with the new IP.
     - Delete: For any IP in TARGET_DNS_RECORDS that is not present in SOURCE_IPV4_ADDRESSES, delete the DNS A record to ensure synchronization.
 
+    In `Insert` or `Update` scenarios, the API call payload must include a `ttl` property, with the value specified through the `--ttl` argument.
+
     In verbose mode, for each of the four possible scenarios above, the script should display a corresponding verbose message:
     
     - Skip: `Skipping '$TARGET_DNS_RECORD'.`
     - Insert: `Adding '$SOURCE_IPV4_ADDRESS' to '$TARGET_DNS_RECORD'.`
     - Update: `Updating '$SOURCE_IPV4_ADDRESS' in '$TARGET_DNS_RECORD'.` 
     - Delete: `Removing '$SOURCE_IPV4_ADDRESS' from '$TARGET_DNS_RECORD'.` 
+
+
 
 The final outcome should be that TARGET_DNS_RECORDS reflects the exact set of IPv4 addresses in SOURCE_IPV4_ADDRESSES, ensuring the DNS records are accurate and up-to-date with the public IPs of the specified interfaces.

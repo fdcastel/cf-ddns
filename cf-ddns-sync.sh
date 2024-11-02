@@ -55,12 +55,13 @@ create_dns_record() {
     local zone_id="$1"
     local hostname="$2"
     local ip="$3"
-    local api_token="$4"
+    local ttl="$4"
+    local api_token="$5"
 
     curl -s -X POST "https://api.cloudflare.com/client/v4/zones/$zone_id/dns_records" \
         -H "Authorization: Bearer $api_token" \
         -H "Content-Type: application/json" \
-        --data "{\"type\":\"A\",\"name\":\"$hostname\",\"content\":\"$ip\",\"ttl\":1}" >/dev/null
+        --data "{\"type\":\"A\",\"name\":\"$hostname\",\"content\":\"$ip\",\"ttl\":$ttl}" >/dev/null
 }
 
 # Function to update DNS record
@@ -69,12 +70,13 @@ update_dns_record() {
     local record_id="$2"
     local hostname="$3"
     local ip="$4"
-    local api_token="$5"
+    local ttl="$5"
+    local api_token="$6"
 
     curl -s -X PUT "https://api.cloudflare.com/client/v4/zones/$zone_id/dns_records/$record_id" \
         -H "Authorization: Bearer $api_token" \
         -H "Content-Type: application/json" \
-        --data "{\"type\":\"A\",\"name\":\"$hostname\",\"content\":\"$ip\",\"ttl\":1}" >/dev/null
+        --data "{\"type\":\"A\",\"name\":\"$hostname\",\"content\":\"$ip\",\"ttl\":$ttl}" >/dev/null
 }
 
 # Function to delete DNS record
@@ -94,14 +96,16 @@ ZONE_ID=""
 TARGET=""
 SOURCES=()
 VERBOSE=false
+TTL=60
 
 print_usage() {
-    echo "Usage: $0 --apiToken TOKEN --zoneId ZONE_ID --target HOSTNAME [--source INTERFACE]... [-v|--verbose]" >&2
+    echo "Usage: $0 --apiToken TOKEN --zoneId ZONE_ID --target HOSTNAME [--source INTERFACE]... [--ttl TTL] [-v|--verbose]" >&2
     echo "Options:" >&2
     echo "  --apiToken TOKEN    Cloudflare API token" >&2
     echo "  --zoneId ZONE_ID   Cloudflare Zone ID" >&2
     echo "  --target HOSTNAME  Target hostname" >&2
     echo "  --source INTERFACE Network interface (can be specified multiple times)" >&2
+    echo "  --ttl TTL          TTL value for DNS records (default: 60)" >&2
     echo "  -v, --verbose      Enable verbose output" >&2
     echo "  -h, --help         Show this help message" >&2
 }
@@ -122,6 +126,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --source)
             SOURCES+=("$2")
+            shift 2
+            ;;
+        --ttl)
+            TTL="$2"
             shift 2
             ;;
         -v|--verbose)
@@ -177,7 +185,7 @@ for ip in "${!SOURCE_IPS[@]}"; do
         unset CURRENT_RECORDS["$ip"]
     else
         log_verbose "Adding '$ip' to '$TARGET'."
-        create_dns_record "$ZONE_ID" "$TARGET" "$ip" "$API_TOKEN"
+        create_dns_record "$ZONE_ID" "$TARGET" "$ip" "$TTL" "$API_TOKEN"
     fi
 done
 
