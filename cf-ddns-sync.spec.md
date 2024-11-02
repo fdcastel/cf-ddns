@@ -1,8 +1,18 @@
+# Overview 
+
 Create a BASH script named `cf-ddns-sync.sh` to update Cloudflare DNS A records with the IPv4 addresses from specified network interfaces.
 
 Use the Cloudflare REST API (documentation available at https://developers.cloudflare.com/api/) to perform the updates. 
 
 Cloudlare API requires an API TOKEN for authentication.
+
+
+
+All `curl` commands must store the HTTP response in a variable. The response will always be in JSON format. If the `success` property in the JSON response is `false`, the script should:
+  1. Write `ERROR: $error_message (code: $error_code).` to `stderr`, where `$error_code` and `$error_message` correspond to the `code` and `message` properties of the first object in the `errors` array of the JSON response.
+  2. Exit immediately with a status code of `1`.
+
+The script should return a status code of `0` upon successful completion without errors.
 
 
 
@@ -53,12 +63,17 @@ However, if no `--source` argument is provided, the script should skip retrievin
 In verbose mode, the script should display the verbose message `Got IPv4 address '$PUBLIC_IPV4_ADDRESS'.` immediately after executing the `dig` command.
 
 
+If the `dig` command returns an empty response in any scenario, the script should write `ERROR: Cannot get public IPv4 address.` to `stderr` and exit immediately with a status code of `1`.
+
+
 
 # STEP 2:
 
 Now, to synchronize the list of DNS A records of the target hostname with the list of public IPv4 addresses obtained in the previous step (lets call it SOURCE_IPV4_ADDRESSES), the script should perform the following steps:
 
 1. **Retrieve Current DNS A Records**: Fetch the current A records for the target hostname (TARGET_DNS_RECORDS) using the Cloudflare API.
+
+    If no records are returned the script should write `ERROR: Unknown host '$TARGET_HOSTNAME'.` to `stderr` and exit immediately with a status code of `1`.
 
 2. **Compare and Synchronize DNS A Records**: For each IP in SOURCE_IPV4_ADDRESSES, check if there’s a corresponding DNS A record in TARGET_DNS_RECORDS. There are 4 possible scenarios:
     - Skip: If an existing record already has the correct IP, skip the update to avoid redundant API calls.
@@ -74,11 +89,5 @@ Now, to synchronize the list of DNS A records of the target hostname with the li
     - Insert: `Adding '$SOURCE_IPV4_ADDRESS' to '$TARGET_DNS_RECORD'.`
     - Update: `Updating '$SOURCE_IPV4_ADDRESS' in '$TARGET_DNS_RECORD'.` 
     - Delete: `Removing '$SOURCE_IPV4_ADDRESS' from '$TARGET_DNS_RECORD'.` 
-
-All `curl` commands utilizing `POST`, `PUT` or `DELETE` methods must store the HTTP response in a variable. The response will always be in JSON format. If the `success` property in the JSON response is `false`, the script should:
-  1. Write `ERROR: $error_message (code: $error_code).` to `stderr`, where `$error_code` and `$error_message` correspond to the `code` and `message` properties of the first object in the `errors` array of the JSON response.
-  2. Exit immediately with a status code of `1`.
-
-The script should return a status code of `0` upon successful completion without errors.
 
 The final outcome should be that TARGET_DNS_RECORDS reflects the exact set of IPv4 addresses in SOURCE_IPV4_ADDRESSES, ensuring the DNS records are accurate and up-to-date with the public IPs of the specified interfaces.

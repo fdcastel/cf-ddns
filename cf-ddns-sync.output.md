@@ -15,13 +15,12 @@ Create the main script file with all required functionality.
 
 This script implements all requirements from the specification:
 
-1. Proper argument parsing with required and optional parameters
-2. IPv4 address retrieval from specified interfaces or default behavior
-3. Cloudflare API integration for DNS record management
-4. Error handling for API responses
-5. Verbose mode output to stderr
-6. TTL management with default value
-7. Synchronization of DNS records with source IP addresses
+1. Argument parsing with validation
+2. IPv4 address retrieval from interfaces or default route
+3. Cloudflare API interaction with error handling
+4. DNS record synchronization (create/update/delete)
+5. Verbose logging to stderr
+6. Proper error handling and exit codes
 
 To use the script:
 
