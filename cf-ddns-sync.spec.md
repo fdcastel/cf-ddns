@@ -1,8 +1,8 @@
-# Overview 
+# Overview
 
 Create a BASH script named `cf-ddns-sync.sh` to update Cloudflare DNS A records with the IPv4 addresses from specified network interfaces.
 
-Use the Cloudflare REST API (documentation available at https://developers.cloudflare.com/api/) to perform the updates. 
+Use the Cloudflare REST API (documentation available at https://developers.cloudflare.com/api/) to perform the updates.
 
 Cloudlare API requires an API TOKEN for authentication.
 
@@ -28,9 +28,9 @@ The script should have a command-line argument parser that accepts the following
 
 The script must strictly avoid outputting any content to `stdout`.
 
-When invoked with the `-v` or `--verbose` flags, it may produce specific informative messages (referred to as verbose messages), which should be directed exclusively to `stderr`. 
+When invoked with the `-v` or `--verbose` flags, it may produce specific informative messages (referred to as verbose messages), which should be directed exclusively to `stderr`.
 
-The argument parser should validate all inputs and provide usage instructions if `-h` or `--help` is passed. 
+The argument parser should validate all inputs and provide usage instructions if `-h` or `--help` is passed.
 
 Upon validation of all arguments, the script execution should proceed as follows:
 
@@ -41,14 +41,14 @@ Upon validation of all arguments, the script execution should proceed as follows
 For each specified network interface in `--source`, the script should retrieve the public IPv4 address following these steps:
 
 1. **Retrieve Local IPv4 Address**: First, obtain the local IPv4 address of each interface (`$SOURCE_INTERFACE_NAME` in the code below):
-   
-        ip -4 -oneline address show $SOURCE_INTERFACE_NAME | 
-            grep --only-matching --perl-regexp '((25[0-5]|(2[0-4]|1\d|[1-9]|)\d)\.?\b){4}' | 
+
+        ip -4 -oneline address show $SOURCE_INTERFACE_NAME |
+            grep --only-matching --perl-regexp '((25[0-5]|(2[0-4]|1\d|[1-9]|)\d)\.?\b){4}' |
                 head -n 1
 
 2. **Query Public IPv4 Address**: Once the local IP is identified, use `dig` command to query the public IPv4 address from a DNS server:
 
-        dig -b $IFACE_LOCAL_IPV4_ADDRESS +short txt ch whoami.cloudflare @1.1.1.1 | 
+        dig -b $IFACE_LOCAL_IPV4_ADDRESS +short txt ch whoami.cloudflare @1.1.1.1 |
             tr -d '\"'
 
 In verbose mode, the script should display the verbose message `Got IPv4 address '$PUBLIC_IPV4_ADDRESS' for interface '$SOURCE_INTERFACE_NAME'.` immediately after executing the `dig` command. This message must appear for each network interface specified in `--source`, providing clarity on the interface being processed.
@@ -57,7 +57,7 @@ In verbose mode, the script should display the verbose message `Got IPv4 address
 
 However, if no `--source` argument is provided, the script should skip retrieving the local IPv4 address and directly use the `dig` command without specifying the `-b` option:
 
-    dig +short txt ch whoami.cloudflare @1.1.1.1 | 
+    dig +short txt ch whoami.cloudflare @1.1.1.1 |
         tr -d '\"'
 
 In verbose mode, the script should display the verbose message `Got IPv4 address '$PUBLIC_IPV4_ADDRESS'.` immediately after executing the `dig` command.
@@ -79,15 +79,15 @@ Now, to synchronize the list of DNS A records of the target hostname with the li
 1. **Retrieve Current DNS A Records**: Implement a caching mechanism for DNS records following these rules:
 
    a. Cache Location: Store the cache in `/var/cache/cf-ddns/${ZONE_ID}_${TARGET_HOSTNAME}.cache` as a JSON file.
-   
+
    b. Cache Format: The cache file should contain:
       - `timestamp`: Unix timestamp of when the cache was last updated.
       - `records`: Array of DNS records from the last Cloudflare API response.
-   
+
    c. Cache Validation:
       - If the cache file exists and is readable, use the cached records.
       - Otherwise, fetch records from Cloudflare API and update the cache.  If necessary, create the cache directory.
-   
+
    If no records are returned (from cache or API) the script should write `ERROR: Unknown host '$TARGET_HOSTNAME'.` to `stderr` and exit immediately with a status code of `1`.
 
 2. **Compare and Synchronize DNS A Records**: For each IP in SOURCE_IPV4_ADDRESSES, check if there’s a corresponding DNS A record in TARGET_DNS_RECORDS. There are 4 possible scenarios:
@@ -98,11 +98,13 @@ Now, to synchronize the list of DNS A records of the target hostname with the li
 
     In `Insert` or `Update` scenarios, the API call payload must include a `ttl` property, with the value specified through the `--ttl` argument.
 
+    In `Insert`, `Update` or `Delete` scenarios it is essential to refresh the local cache file to ensure that its data remains consistent with the changes made through the API.
+
     In verbose mode, for each of the four possible scenarios above, the script should display a corresponding verbose message:
-    
+
     - Skip: `Skipping '$TARGET_DNS_RECORD'.`
     - Insert: `Adding '$SOURCE_IPV4_ADDRESS' to '$TARGET_DNS_RECORD'.`
-    - Update: `Updating '$SOURCE_IPV4_ADDRESS' in '$TARGET_DNS_RECORD'.` 
-    - Delete: `Removing '$SOURCE_IPV4_ADDRESS' from '$TARGET_DNS_RECORD'.` 
+    - Update: `Updating '$SOURCE_IPV4_ADDRESS' in '$TARGET_DNS_RECORD'.`
+    - Delete: `Removing '$SOURCE_IPV4_ADDRESS' from '$TARGET_DNS_RECORD'.`
 
 The final outcome should be that TARGET_DNS_RECORDS reflects the exact set of IPv4 addresses in SOURCE_IPV4_ADDRESSES, ensuring the DNS records are accurate and up-to-date with the public IPs of the specified interfaces.

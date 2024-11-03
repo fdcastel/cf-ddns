@@ -1,210 +1,206 @@
 #!/bin/bash
-
 set -euo pipefail
 
-# Global variables
-VERBOSE=false
-CACHE_DIR="/var/cache/cf-ddns"
-API_URL="https://api.cloudflare.com/client/v4"
+# Function to print verbose messages to stderr
+print_verbose() {
+    [[ "${VERBOSE:-}" == "true" ]] && echo "$1" >&2
+}
 
-# Print error message to stderr and exit
-error() {
+# Function to print error and exit
+print_error() {
     echo "ERROR: $1" >&2
     exit 1
 }
 
-# Print verbose message to stderr if verbose mode is enabled
-verbose() {
-    if [[ "$VERBOSE" == true ]]; then
-        echo "$1" >&2
+# Function to parse JSON error response
+parse_cf_error() {
+    local response="$1"
+    local error_code=$(echo "$response" | jq -r '.errors[0].code')
+    local error_message=$(echo "$response" | jq -r '.errors[0].message')
+    print_error "$error_message (code: $error_code)"
+}
+
+# Function to check API response
+check_cf_response() {
+    local response="$1"
+    if [[ $(echo "$response" | jq -r '.success') != "true" ]]; then
+        parse_cf_error "$response"
     fi
+}
+
+# Function to get public IPv4 address
+get_public_ipv4() {
+    local interface="$1"
+    local ipv4_addr
+    local public_ip
+
+    if [[ -n "$interface" ]]; then
+        ipv4_addr=$(ip -4 -oneline address show "$interface" | 
+            grep --only-matching --perl-regexp '((25[0-5]|(2[0-4]|1\d|[1-9]|)\d)\.?\b){4}' |
+            head -n 1)
+        [[ -z "$ipv4_addr" ]] && return
+        public_ip=$(dig -b "$ipv4_addr" +short txt ch whoami.cloudflare @1.1.1.1 | tr -d '\"')
+        [[ -n "$public_ip" ]] && print_verbose "Got IPv4 address '$public_ip' for interface '$interface'."
+    else
+        public_ip=$(dig +short txt ch whoami.cloudflare @1.1.1.1 | tr -d '\"')
+        [[ -n "$public_ip" ]] && print_verbose "Got IPv4 address '$public_ip'."
+    fi
+    [[ -n "$public_ip" ]] && echo "$public_ip"
+}
+
+# Function to get DNS records (from cache or API)
+get_dns_records() {
+    local zone_id="$1"
+    local hostname="$2"
+    local cache_dir="/var/cache/cf-ddns"
+    local cache_file="${cache_dir}/${zone_id}_${hostname}.cache"
+    local current_time=$(date +%s)
+    local response
+
+    # Create cache directory if it doesn't exist
+    [[ ! -d "$cache_dir" ]] && mkdir -p "$cache_dir"
+
+    # Check if cache exists and is valid
+    if [[ -r "$cache_file" ]]; then
+        response=$(cat "$cache_file")
+    else
+        response=$(curl -s -X GET \
+            "https://api.cloudflare.com/client/v4/zones/${zone_id}/dns_records?type=A&name=${hostname}" \
+            -H "Authorization: Bearer ${API_TOKEN}")
+        check_cf_response "$response"
+        echo "{\"timestamp\":${current_time},\"records\":$(echo "$response" | jq '.result')}" > "$cache_file"
+    fi
+    echo "$response" | jq -r '.records'
+}
+
+# Function to update cache
+update_cache() {
+    local zone_id="$1"
+    local hostname="$2"
+    local cache_dir="/var/cache/cf-ddns"
+    local cache_file="${cache_dir}/${zone_id}_${hostname}.cache"
+    local current_time=$(date +%s)
+    local response
+
+    response=$(curl -s -X GET \
+        "https://api.cloudflare.com/client/v4/zones/${zone_id}/dns_records?type=A&name=${hostname}" \
+        -H "Authorization: Bearer ${API_TOKEN}")
+    check_cf_response "$response"
+    echo "{\"timestamp\":${current_time},\"records\":$(echo "$response" | jq '.result')}" > "$cache_file"
 }
 
 # Parse command line arguments
-parse_args() {
-    local SOURCES=()
-    local API_TOKEN=""
-    local ZONE_ID=""
-    local TARGET=""
-    local TTL=60
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --apiToken)
+            API_TOKEN="$2"
+            shift 2
+            ;;
+        --zoneId)
+            ZONE_ID="$2"
+            shift 2
+            ;;
+        --target)
+            TARGET="$2"
+            shift 2
+            ;;
+        --source)
+            SOURCES+=("$2")
+            shift 2
+            ;;
+        --ttl)
+            TTL="$2"
+            shift 2
+            ;;
+        -v|--verbose)
+            VERBOSE=true
+            shift
+            ;;
+        -h|--help)
+            echo "Usage: cf-ddns-sync.sh [OPTIONS]" >&2
+            echo "Options:" >&2
+            echo "  --apiToken TOKEN    Cloudflare API token" >&2
+            echo "  --zoneId ID        Cloudflare Zone ID" >&2
+            echo "  --target HOST      Target hostname" >&2
+            echo "  --source IFACE     Network interface (can be specified multiple times)" >&2
+            echo "  --ttl VALUE        TTL value (default: 60)" >&2
+            echo "  -v, --verbose      Enable verbose output" >&2
+            echo "  -h, --help         Show this help" >&2
+            exit 0
+            ;;
+        *)
+            print_error "Unknown option: $1"
+            ;;
+    esac
+done
 
-    while [[ $# -gt 0 ]]; do
-        case $1 in
-            -v|--verbose)
-                VERBOSE=true
-                shift
-                ;;
-            -h|--help)
-                cat >&2 <<EOF
-Usage: $(basename "$0") [OPTIONS]
-    --apiToken TOKEN    Cloudflare API token
-    --zoneId ID        Cloudflare Zone ID
-    --target HOST      Target hostname
-    --source IF        Network interface (can be specified multiple times)
-    --ttl TTL         TTL for DNS records (default: 60)
-    -v, --verbose     Enable verbose output
-    -h, --help        Show this help
-EOF
-                exit 0
-                ;;
-            --apiToken)
-                API_TOKEN="$2"
-                shift 2
-                ;;
-            --zoneId)
-                ZONE_ID="$2"
-                shift 2
-                ;;
-            --target)
-                TARGET="$2"
-                shift 2
-                ;;
-            --source)
-                SOURCES+=("$2")
-                shift 2
-                ;;
-            --ttl)
-                TTL="$2"
-                shift 2
-                ;;
-            *)
-                error "Unknown option: $1"
-                ;;
-        esac
-    done
-
-    # Validate required arguments
-    [[ -z "$API_TOKEN" ]] && error "Missing required argument: --apiToken"
-    [[ -z "$ZONE_ID" ]] && error "Missing required argument: --zoneId"
-    [[ -z "$TARGET" ]] && error "Missing required argument: --target"
-
-    # Export variables for use in other functions
-    export CF_API_TOKEN="$API_TOKEN"
-    export CF_ZONE_ID="$ZONE_ID"
-    export CF_TARGET="$TARGET"
-    export CF_TTL="$TTL"
-    export SOURCE_INTERFACES=("${SOURCES[@]}")
-}
-
-# Call Cloudflare API
-cf_api() {
-    local method="$1"
-    local endpoint="$2"
-    local data="${3:-}"
-    local response
-
-    if [[ -n "$data" ]]; then
-        response=$(curl -s -X "$method" \
-            -H "Authorization: Bearer $CF_API_TOKEN" \
-            -H "Content-Type: application/json" \
-            "$API_URL$endpoint" -d "$data")
-    else
-        response=$(curl -s -X "$method" \
-            -H "Authorization: Bearer $CF_API_TOKEN" \
-            "$API_URL$endpoint")
-    fi
-
-    # Check for API errors
-    if [[ "$(echo "$response" | jq -r .success)" != "true" ]]; then
-        local error_code=$(echo "$response" | jq -r '.errors[0].code')
-        local error_message=$(echo "$response" | jq -r '.errors[0].message')
-        error "$error_message (code: $error_code)"
-    fi
-
-    echo "$response"
-}
+# Validate required arguments
+[[ -z "${API_TOKEN:-}" ]] && print_error "Missing required option: --apiToken"
+[[ -z "${ZONE_ID:-}" ]] && print_error "Missing required option: --zoneId"
+[[ -z "${TARGET:-}" ]] && print_error "Missing required option: --target"
+TTL="${TTL:-60}"
 
 # Get public IPv4 addresses
-get_public_ips() {
-    local ips=()
-    local ip
-
-    if [[ ${#SOURCE_INTERFACES[@]} -eq 0 ]]; then
-        ip=$(dig +short txt ch whoami.cloudflare @1.1.1.1 | tr -d '"')
-        [[ -n "$ip" ]] && ips+=("$ip") && verbose "Got IPv4 address '$ip'."
-    else
-        for iface in "${SOURCE_INTERFACES[@]}"; do
-            local local_ip
-            local_ip=$(ip -4 -oneline address show "$iface" | grep -oP '(?:\d{1,3}\.){3}\d{1,3}' | head -n 1)
-            [[ -z "$local_ip" ]] && continue
-
-            ip=$(dig -b "$local_ip" +short txt ch whoami.cloudflare @1.1.1.1 | tr -d '"')
-            if [[ -n "$ip" && ! " ${ips[@]} " =~ " ${ip} " ]]; then
-                ips+=("$ip")
-                verbose "Got IPv4 address '$ip' for interface '$iface'."
-            fi
-        done
-    fi
-
-    [[ ${#ips[@]} -eq 0 ]] && error "Cannot get public IPv4 address."
-    echo "${ips[@]}"
-}
-
-# Get DNS records from cache or API
-get_dns_records() {
-    local cache_file="$CACHE_DIR/${CF_ZONE_ID}_${CF_TARGET}.cache"
-    local records
-
-    # Create cache directory if it doesn't exist
-    mkdir -p "$CACHE_DIR"
-
-    # Try to read from cache first
-    if [[ -r "$cache_file" ]]; then
-        records=$(jq -r '.records' "$cache_file")
-    fi
-
-    # If cache miss or invalid, fetch from API
-    if [[ -z "${records:-}" || "$records" == "null" ]]; then
-        local response
-        response=$(cf_api "GET" "/zones/$CF_ZONE_ID/dns_records?type=A&name=$CF_TARGET")
-        records=$(echo "$response" | jq '.result')
-        
-        # Update cache
-        jq -n --arg ts "$(date +%s)" --argjson recs "$records" \
-            '{"timestamp":($ts|tonumber),"records":$recs}' > "$cache_file"
-    fi
-
-    [[ "$records" == "[]" ]] && error "Unknown host '$CF_TARGET'."
-    echo "$records"
-}
-
-# Synchronize DNS records
-sync_dns_records() {
-    local source_ips=($1)
-    local records
-    records=$(get_dns_records)
-
-    # Process each source IP
-    for ip in "${source_ips[@]}"; do
-        local record_id
-        record_id=$(echo "$records" | jq -r ".[] | select(.content == \"$ip\") | .id")
-
-        if [[ -n "$record_id" ]]; then
-            verbose "Skipping '$CF_TARGET'."
-            continue
-        fi
-
-        # Create new record
-        verbose "Adding '$ip' to '$CF_TARGET'."
-        cf_api "POST" "/zones/$CF_ZONE_ID/dns_records" \
-            "{\"type\":\"A\",\"name\":\"$CF_TARGET\",\"content\":\"$ip\",\"ttl\":$CF_TTL}"
+declare -A IP_ADDRESSES
+if [[ ${#SOURCES[@]} -eq 0 ]]; then
+    ip=$(get_public_ipv4 "")
+    [[ -n "$ip" ]] && IP_ADDRESSES["$ip"]=1
+else
+    for interface in "${SOURCES[@]}"; do
+        ip=$(get_public_ipv4 "$interface")
+        [[ -n "$ip" ]] && IP_ADDRESSES["$ip"]=1
     done
+fi
 
-    # Remove outdated records
-    while read -r record_id ip; do
-        if [[ -n "$record_id" && ! " ${source_ips[@]} " =~ " ${ip} " ]]; then
-            verbose "Removing '$ip' from '$CF_TARGET'."
-            cf_api "DELETE" "/zones/$CF_ZONE_ID/dns_records/$record_id"
-        fi
-    done < <(echo "$records" | jq -r '.[] | "\(.id) \(.content)"')
-}
+[[ ${#IP_ADDRESSES[@]} -eq 0 ]] && print_error "Cannot get public IPv4 address."
 
-# Main execution
-main() {
-    parse_args "$@"
-    local public_ips
-    public_ips=$(get_public_ips)
-    sync_dns_records "$public_ips"
-}
+# Get current DNS records
+records=$(get_dns_records "$ZONE_ID" "$TARGET")
+[[ -z "$records" ]] && print_error "Unknown host '$TARGET'."
 
-main "$@"
+# Process each IP address
+for ip in "${!IP_ADDRESSES[@]}"; do
+    record=$(echo "$records" | jq -r ".[] | select(.content==\"$ip\")")
+    if [[ -n "$record" ]]; then
+        print_verbose "Skipping '$TARGET'."
+        continue
+    fi
+
+    # Find record with different IP to update
+    record_to_update=$(echo "$records" | jq -r '.[] | select(.content!="'"$ip"'") | first')
+    if [[ -n "$record_to_update" ]]; then
+        record_id=$(echo "$record_to_update" | jq -r '.id')
+        print_verbose "Updating '$ip' in '$TARGET'."
+        response=$(curl -s -X PUT \
+            "https://api.cloudflare.com/client/v4/zones/${ZONE_ID}/dns_records/${record_id}" \
+            -H "Authorization: Bearer ${API_TOKEN}" \
+            -H "Content-Type: application/json" \
+            --data "{\"type\":\"A\",\"name\":\"${TARGET}\",\"content\":\"${ip}\",\"ttl\":${TTL}}")
+        check_cf_response "$response"
+    else
+        print_verbose "Adding '$ip' to '$TARGET'."
+        response=$(curl -s -X POST \
+            "https://api.cloudflare.com/client/v4/zones/${ZONE_ID}/dns_records" \
+            -H "Authorization: Bearer ${API_TOKEN}" \
+            -H "Content-Type: application/json" \
+            --data "{\"type\":\"A\",\"name\":\"${TARGET}\",\"content\":\"${ip}\",\"ttl\":${TTL}}")
+        check_cf_response "$response"
+    fi
+    update_cache "$ZONE_ID" "$TARGET"
+done
+
+# Remove extra records
+for record in $(echo "$records" | jq -c '.[]'); do
+    ip=$(echo "$record" | jq -r '.content')
+    if [[ -z "${IP_ADDRESSES[$ip]:-}" ]]; then
+        record_id=$(echo "$record" | jq -r '.id')
+        print_verbose "Removing '$ip' from '$TARGET'."
+        response=$(curl -s -X DELETE \
+            "https://api.cloudflare.com/client/v4/zones/${ZONE_ID}/dns_records/${record_id}" \
+            -H "Authorization: Bearer ${API_TOKEN}")
+        check_cf_response "$response"
+        update_cache "$ZONE_ID" "$TARGET"
+    fi
+done
+
+exit 0
