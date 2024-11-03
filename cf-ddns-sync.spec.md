@@ -92,7 +92,7 @@ However, to avoid many unnecessary calls to the API, a cache mechanism should be
 
    In verbose mode, the script should display the verbose message: `DNS A records for '$TARGET_HOSTNAME' = $LIST_OF_IP_ADDRESSES` where LIST_OF_IP_ADDRESSES is the list of ip addresses obtained from cache or from API. If obtained from cache the verbose message must also append the suffix ` (Cached)`.
    
-   If no records are returned (from cache or API) the script should write `ERROR: Unknown host '$TARGET_HOSTNAME'.` to `stderr` and exit immediately with a status code of `1`.
+   If no records are returned (from cache or API) this step must return an empty list.
 
    The expected result of this step is a list of DNS A Records called TARGET_DNS_RECORDS. This list must be sorted by the ip address of each record.
 
