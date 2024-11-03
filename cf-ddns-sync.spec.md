@@ -66,6 +66,8 @@ In verbose mode, the script should display the verbose message `Got IPv4 address
 
 If the `dig` command for a given network interface returns an empty response that network interface must be ignored.
 
+If the `dig` command for a specific network interface returns an IPv4 address that has already been returned by another interface, that IPv4 address should be disregarded and not added to the list again.
+
 If no public IPv4 address could be obtained from any interface, the script should write `ERROR: Cannot get public IPv4 address.` to `stderr` and exit immediately with a status code of `1`.
 
 
