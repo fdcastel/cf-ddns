@@ -63,7 +63,10 @@ However, if no `--source` argument is provided, the script should skip retrievin
 In verbose mode, the script should display the verbose message `Got IPv4 address '$PUBLIC_IPV4_ADDRESS'.` immediately after executing the `dig` command.
 
 
-If the `dig` command returns an empty response in any scenario, the script should write `ERROR: Cannot get public IPv4 address.` to `stderr` and exit immediately with a status code of `1`.
+
+If the `dig` command for a given network interface returns an empty response that network interface must be ignored.
+
+If no public IPv4 address could be obtained from any interface, the script should write `ERROR: Cannot get public IPv4 address.` to `stderr` and exit immediately with a status code of `1`.
 
 
 
