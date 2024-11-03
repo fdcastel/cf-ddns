@@ -78,15 +78,15 @@ Now, to synchronize the list of DNS A records of the target hostname with the li
 
 1. **Retrieve Current DNS A Records**: Implement a caching mechanism for DNS records following these rules:
 
-   a. Cache Location: Store the cache in `/var/cache/cf-ddns/${TARGET_HOSTNAME}.cache` as a JSON file.
+   a. Cache Location: Store the cache in `/var/cache/cf-ddns/${TARGET_HOSTNAME}.cache` as a plaintext file.
 
-   b. Cache Format: The cache file should contain:
-      - `timestamp`: Unix timestamp of when the cache was last updated.
-      - `records`: Array of DNS records from the last Cloudflare API response.
+   b. Cache Format: The cache file must contain the known IPv4 addresses of the DNS A records for that TARGET_HOSTNAME, with one address per line.
 
    c. Cache Validation:
-      - If the cache file exists, is readable, and the count of elements in SOURCE_IPV4_ADDRESSES matches the number of `records` array in the local cache, use the cached records.
-      - Otherwise, fetch records from Cloudflare API and update the cache.  If necessary, create the cache directory.
+      - If the cache file doesn't exists or isn't readable, fetch the records from Cloudflare API.
+      - If any address in SOURCE_IPV4_ADDRESSES are not present in local cache, fetch the records from Cloudflare API.
+      - If the count of elements in SOURCE_IPV4_ADDRESSES differs from the count of addresses in local cache, fetch the records from Cloudflare API.
+      - Otherwise, use the local cached records.
 
    If no records are returned (from cache or API) the script should write `ERROR: Unknown host '$TARGET_HOSTNAME'.` to `stderr` and exit immediately with a status code of `1`.
 
@@ -98,13 +98,15 @@ Now, to synchronize the list of DNS A records of the target hostname with the li
 
     In `Insert` or `Update` scenarios, the API call payload must include a `ttl` property, with the value specified through the `--ttl` argument.
 
-    In `Insert`, `Update` or `Delete` scenarios it is essential to refresh the local cache file to ensure that its data remains consistent with the changes made through the API.
-
     In verbose mode, for each of the four possible scenarios above, the script should display a corresponding verbose message:
 
     - Skip: `Skipping '$TARGET_DNS_RECORD'.`
     - Insert: `Adding '$SOURCE_IPV4_ADDRESS' to '$TARGET_DNS_RECORD'.`
     - Update: `Updating '$SOURCE_IPV4_ADDRESS' in '$TARGET_DNS_RECORD'.`
     - Delete: `Removing '$SOURCE_IPV4_ADDRESS' from '$TARGET_DNS_RECORD'.`
+
+    Once all synchronization API calls have been executed, it is essential to refresh the local cache file to ensure that its data remains consistent with the changes made through the API.
+    
+    When writing the cache file, if necessary, create the cache directory.
 
 The final outcome should be that TARGET_DNS_RECORDS reflects the exact set of IPv4 addresses in SOURCE_IPV4_ADDRESSES, ensuring the DNS records are accurate and up-to-date with the public IPs of the specified interfaces.
