@@ -19,7 +19,8 @@ The script must create a `systemd` SERVICE with the following requirements:
   - The `cf-ddns-sync.py` script must to be located in the same directory as this script.
   - The service description should be in the format: `Synchronizes DNS records for $TARGET_NAME`, where $TARGET_NAME is the value from the `--target` argument.
   - The service file name (`systemd` unit) should be in the format `cf-ddns-$TARGET_NAME.service`.
-  - The service type should be set to `simple`.
+  - The service type should be set to `oneshot`.
+  - The service execution must be terminated if it runs longer than 30 seconds.
   - The service output should be logged in `systemd` journal.
   - The service should be configured to execute only after the network is available.
 
