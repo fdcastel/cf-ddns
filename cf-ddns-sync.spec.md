@@ -78,14 +78,14 @@ Now, to synchronize the list of DNS A records of the target hostname with the li
 
 1. **Retrieve Current DNS A Records**: Implement a caching mechanism for DNS records following these rules:
 
-   a. Cache Location: Store the cache in `/var/cache/cf-ddns/${ZONE_ID}_${TARGET_HOSTNAME}.cache` as a JSON file.
+   a. Cache Location: Store the cache in `/var/cache/cf-ddns/${TARGET_HOSTNAME}.cache` as a JSON file.
 
    b. Cache Format: The cache file should contain:
       - `timestamp`: Unix timestamp of when the cache was last updated.
       - `records`: Array of DNS records from the last Cloudflare API response.
 
    c. Cache Validation:
-      - If the cache file exists and is readable, use the cached records.
+      - If the cache file exists, is readable, and the count of elements in SOURCE_IPV4_ADDRESSES matches the number of `records` array in the local cache, use the cached records.
       - Otherwise, fetch records from Cloudflare API and update the cache.  If necessary, create the cache directory.
 
    If no records are returned (from cache or API) the script should write `ERROR: Unknown host '$TARGET_HOSTNAME'.` to `stderr` and exit immediately with a status code of `1`.
