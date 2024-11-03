@@ -1,53 +1,57 @@
 #!/bin/bash
 
-set -o errexit
-set -o nounset
-set -o pipefail
+set -euo pipefail
 
-print_usage() {
-    echo "Usage: $0 --target HOSTNAME" >&2
-    echo "Options:" >&2
-    echo "  --target HOSTNAME   Target hostname to uninstall" >&2
-    echo "  -h, --help         Show this help message" >&2
+function show_help() {
+    cat << EOF
+Usage: $(basename "$0") --target HOSTNAME
+
+Required arguments:
+  --target HOSTNAME   Target hostname to uninstall
+  -h, --help         Show this help message
+EOF
+    exit 1
 }
 
 # Parse arguments
 while [[ $# -gt 0 ]]; do
     case $1 in
         --target)
+            if [[ -z ${2:-} ]]; then
+                echo "ERROR: Missing value for $1" >&2
+                show_help
+            fi
             TARGET_NAME="$2"
             shift 2
             ;;
         -h|--help)
-            print_usage
-            exit 0
+            show_help
             ;;
         *)
-            echo "Error: Unknown option $1" >&2
-            print_usage
-            exit 1
+            echo "ERROR: Unknown argument: $1" >&2
+            show_help
             ;;
     esac
 done
 
-if [[ -z "${TARGET_NAME:-}" ]]; then
-    echo "Error: --target argument is required" >&2
-    print_usage
-    exit 1
+if [[ -z ${TARGET_NAME:-} ]]; then
+    echo "ERROR: --target is required" >&2
+    show_help
 fi
 
-SERVICE_NAME="cf-ddns-$TARGET_NAME"
-SERVICE_FILE="/etc/systemd/system/$SERVICE_NAME.service"
-TIMER_FILE="/etc/systemd/system/$SERVICE_NAME.timer"
+SERVICE_NAME="cf-ddns-${TARGET_NAME}"
 
-# Stop and disable the timer
-systemctl stop "$SERVICE_NAME.timer" 2>/dev/null || true
-systemctl disable "$SERVICE_NAME.timer" 2>/dev/null || true
+# Stop and disable service/timer
+systemctl stop "${SERVICE_NAME}.timer" 2>/dev/null || true
+systemctl disable "${SERVICE_NAME}.timer" 2>/dev/null || true
+systemctl stop "${SERVICE_NAME}.service" 2>/dev/null || true
+systemctl disable "${SERVICE_NAME}.service" 2>/dev/null || true
 
-# Remove the service and timer files
-rm -f "$SERVICE_FILE" "$TIMER_FILE"
+# Remove service and timer files
+rm -f "/etc/systemd/system/${SERVICE_NAME}.service"
+rm -f "/etc/systemd/system/${SERVICE_NAME}.timer"
 
 # Reload systemd
 systemctl daemon-reload
 
-echo "Uninstallation complete. Timer $SERVICE_NAME has been removed."
+echo "Uninstallation complete. Service ${SERVICE_NAME} has been removed."

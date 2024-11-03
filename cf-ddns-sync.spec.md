@@ -1,6 +1,10 @@
 # Overview
 
-Create a BASH script named `cf-ddns-sync.sh` to update Cloudflare DNS A records with the IPv4 addresses from specified network interfaces.
+Create a PYTHON 3 script named `cf-ddns-sync.py` to update Cloudflare DNS A records with the IPv4 addresses from specified network interfaces.
+
+The script must start with a shebang for python 3 language.
+
+The script must use only libraries from The Python Standard Library. For http requests, use `urllib` and `json`.
 
 Use the Cloudflare REST API (documentation available at https://developers.cloudflare.com/api/) to perform the updates.
 
@@ -10,7 +14,7 @@ Cloudlare API requires an API TOKEN for authentication.
 
 The script should have a command-line argument parser that accepts the following options:
 
-    cf-ddns-sync.sh --apiToken 145976123897469278364 --zoneId aabbccddeeff --target host1.example.com --source eth0 --source eth1
+    cf-ddns-sync.py --apiToken 145976123897469278364 --zoneId aabbccddeeff --target host1.example.com --source eth0 --source eth1
 
 - `--apiToken`: (Required) Specifies the Cloudflare API Token for API authentication.
 - `--zoneId`: (Required) Identifies the DNS Zone ID for the target DNS record, necessary for API calls.

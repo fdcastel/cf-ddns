@@ -1,29 +1,23 @@
-I'll help you create the install and uninstall scripts according to the specification. Let me break this down into steps:
+I'll help create the installation and uninstallation scripts based on the specification. Here's the step-by-step solution:
 
-Create `cf-ddns-install.sh`:
+1. Create the installation script that accepts and validates arguments
+2. Create systemd service and timer units based on the arguments
+3. Create the uninstallation script that cleanly removes everything
 
-1.Parse and validate command line arguments
-- Create systemd service file with specified requirements
-- Create systemd timer file
-- Install and enable the service/timer
+### cf-ddns-install.sh
 
-2.Create `cf-ddns-uninstall.sh`:
-- Find and stop any running timers
-- Disable and remove the service/timer files
-- Reload systemd
+Creates a systemd service and timer for the cf-ddns-sync.py script, handling command line arguments and installation.
 
-Here are the scripts:
+### cf-ddns-uninstall.sh
 
-`cf-ddns-install.sh`
-Creates systemd service and timer units based on command line arguments.
+Removes the systemd service and timer created by the installation script.
 
-`cf-ddns-uninstall.sh`
-Removes systemd service and timer units for a given target.
+The installation script will:
+1. Parse and validate command line arguments
+2. Create systemd service and timer units
+3. Enable and start the timer
 
-The install script accepts the same arguments as cf-ddns-sync.sh and creates the necessary systemd units. The uninstall script only needs the target hostname to remove the corresponding units.
-
-Make sure to:
-
-1.Place both scripts in the same directory as cf-ddns-sync.sh
-2.Make them executable: `chmod +x cf-ddns-{install,uninstall}.sh`
-3.Run the install script with root privileges since it needs to write to `/etc/systemd/system/`
+The uninstallation script will:
+1. Stop and disable the service/timer
+2. Remove the systemd unit files
+3. Reload systemd configuration
