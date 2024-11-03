@@ -8,14 +8,6 @@ Cloudlare API requires an API TOKEN for authentication.
 
 
 
-All `curl` commands must store the HTTP response in a variable. The response will always be in JSON format. If the `success` property in the JSON response is `false`, the script should:
-  1. Write `ERROR: $error_message (code: $error_code).` to `stderr`, where `$error_code` and `$error_message` correspond to the `code` and `message` properties of the first object in the `errors` array of the JSON response.
-  2. Exit immediately with a status code of `1`.
-
-The script should return a status code of `0` upon successful completion without errors.
-
-
-
 The script should have a command-line argument parser that accepts the following options:
 
     cf-ddns-sync.sh --apiToken 145976123897469278364 --zoneId aabbccddeeff --target host1.example.com --source eth0 --source eth1
@@ -108,5 +100,11 @@ Now, to synchronize the list of DNS A records of the target hostname with the li
     Once all synchronization API calls have been executed, it is essential to refresh the local cache file to ensure that its data remains consistent with the changes made through the API.
     
     When writing the cache file, if necessary, create the cache directory.
+
+    All `curl` commands for the Insert, Update or Delete operations must store the HTTP response in a variable. The response will always be in JSON format. If the `success` property in the JSON response is `false`, the script should:
+    1. Write `ERROR: $error_message (code: $error_code).` to `stderr`, where `$error_code` and `$error_message` correspond to the `code` and `message` properties of the first object in the `errors` array of the JSON response.
+    2. Proceed with the script execution. But at the end of script it must return a status code of `1`.
+
+
 
 The final outcome should be that TARGET_DNS_RECORDS reflects the exact set of IPv4 addresses in SOURCE_IPV4_ADDRESSES, ensuring the DNS records are accurate and up-to-date with the public IPs of the specified interfaces.
