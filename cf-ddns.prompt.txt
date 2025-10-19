@@ -1,3 +1,0 @@
-#file:cf-ddns-sync.py
-
-Write scripts based on the guidelines outlined in the cf-ddns.spec.md file.
