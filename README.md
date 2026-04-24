@@ -266,10 +266,34 @@ cat /var/cache/cf-ddns/$TARGET_HOSTNAME.cache
 
 This project is part of a research initiative examining AI-assisted code generation.
 
-The Python script (`cf-ddns.py`) was **entirely generated** by GitHub Copilot (powered by Claude Sonnet 4.5) based on human-written specifications in the `cf-ddns.spec.md` file.
+The Python script (`cf-ddns.py`) is **entirely generated** from the human-written specification in `cf-ddns.spec.md`. Every committed version of `cf-ddns.py` is a fresh emission from the spec — the script is never hand-patched.
 
-All implementation details, error handling, and edge cases were handled by the AI. The only human-authored files are the specification documents (`.spec.md`) and documentation (`.md` files).
+The only human-authored files in the project are:
 
-The commit history shows the project's evolution and demonstrates the AI's capability to implement complex, production-ready tools from detailed specifications.
+- `cf-ddns.spec.md` — the specification (source of truth).
+- `tests/` — test infrastructure.
+- `.github/workflows/` — CI configuration.
+- `README.md`, `CONTRIBUTING.md` — documentation.
 
-While AI-generated, the design, requirements, and testing were performed under human supervision to ensure quality and security. 
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the spec-driven workflow.
+
+### Generation log
+
+| Version        | Model                                  |
+| -------------- | -------------------------------------- |
+| v1             | GitHub Copilot (Claude Sonnet 3.7)     |
+| v2 (`14c695a`) | GitHub Copilot (Claude Sonnet 4.5)     |
+| v3 (current)   | Claude Code (Claude Opus 4.7)        |
+
+While AI-generated, the design, requirements, and testing are performed under human supervision to ensure quality and security.
+
+## Testing
+
+Unit tests and install-flow tests run on every push:
+
+```bash
+python -m unittest -v tests.test_unit tests.test_install
+```
+
+Integration tests exercise the real Cloudflare API using a dedicated test zone. They require three environment variables (`CF_API_TOKEN`, `CF_ZONE_ID`, `CF_TEST_HOSTNAME`) and are skipped in CI when secrets are not configured. See [CONTRIBUTING.md](CONTRIBUTING.md) for setup.
+
